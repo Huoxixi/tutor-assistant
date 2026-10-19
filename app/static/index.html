@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>家教拾单 · 我的家教机会</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
+<body>
+<header class="site-header"><div class="brand">家教拾单</div><nav aria-label="主要导航">
+<button class="nav active" data-view="orders">订单清单</button><button class="nav" data-view="favorites">我的收藏</button><button class="nav" data-view="preferences">需求设置</button><button class="nav" data-view="groups">微信群</button><button class="nav" data-view="model">模型设置</button>
+</nav></header>
+<main>
+<div id="notice" class="toast" role="status" hidden></div>
+<section id="wechat-authorization" class="connection warn" aria-label="电脑微信授权">
+<strong id="wechat-authorization-status" role="status">尚未授权使用电脑微信</strong>
+<p id="wechat-consent-copy">授权后，程序可操作本机已登录的微信窗口，读取你所选群聊近48小时内可访问的文字消息，并保存到本机。仅在你点击“开始提取信息”时读取。本次授权在程序重启后失效，可随时撤销。</p>
+<div class="actions"><button id="authorize-wechat" type="button" class="primary" disabled>同意并授权</button><button id="revoke-wechat" type="button" hidden>撤销授权</button><button id="check-wechat" type="button" hidden>检查连接</button></div>
+<p id="connection" role="status">授权后才能检查并连接电脑微信；已有信息可继续本地筛选。</p>
+</section>
+<div id="processing" class="processing" hidden><span id="processing-spinner" class="spinner" aria-hidden="true" hidden></span><span id="processing-text" role="status"></span><button id="stop-processing" type="button" hidden>停止</button></div>
+<section id="view-orders" class="view">
+<div class="heading-row"><div><h1>家教订单</h1><p class="muted">最近 48 小时</p></div><div class="actions"><button id="scan" type="button" disabled>开始提取信息</button><button id="filter" type="button" class="primary">开始筛选</button><button id="verify-pending" hidden>AI 核验待确认</button><button id="retry-process" hidden>重试筛选</button><button id="cancel" hidden>停止任务</button></div></div>
+<p id="workflow-hint" class="muted" role="status">先提取微信消息，再筛选已保存的信息。</p>
+<details class="scan-panel"><summary id="scan-summary">尚未提取微信消息</summary><div id="scan-reports"></div></details>
+<div class="summary-row"><div id="rule-summary" class="chips"></div><button data-view="preferences">修改条件</button></div>
+<div class="results-toolbar"><div class="tabs" role="tablist" aria-label="筛选结果"><button role="tab" aria-selected="true" tabindex="0" data-bucket="matched">通过筛选 <span id="count-matched">0</span></button><button role="tab" aria-selected="false" tabindex="-1" data-bucket="pending">待确认 <span id="count-pending">0</span></button></div></div>
+<div id="orders-content"></div>
+<div id="order-detail" hidden></div>
+</section>
+<section id="view-favorites" class="view" hidden><div class="heading-row"><h1>我的收藏</h1></div><div id="favorites-content"></div><div id="favorite-detail" hidden></div></section>
+
+<section id="view-preferences" class="view" hidden><h1>接单设置</h1>
+<form id="preferences-form">
+<fieldset><legend>我的资料</legend><div class="form-grid profile-grid">
+<label>性别<select name="teacher_gender"><option value="">请选择</option><option>男</option><option>女</option></select></label>
+<label>学校水平<select name="school_tier"><option value="">请选择</option><option>985</option><option>211</option><option>双一流</option><option>一本</option><option>双非一本</option><option>双非</option><option>二本</option><option>专科</option><option>其他</option></select></label>
+</div></fieldset>
+<fieldset><legend>薪资范围</legend><div class="form-grid">
+<label>最低<input id="pay-min" type="number" min="0" step="1" placeholder="不限"></label>
+<label>最高<input id="pay-max" type="number" min="0" step="1" placeholder="不限"></label>
+<label>单位<select id="pay-unit"><option value="hourly_rate">元 / 小时</option><option value="lesson_rate">元 / 次</option><option value="monthly_rate">元 / 月</option></select></label>
+</div></fieldset>
+<fieldset><legend>教学科目</legend><div id="subject-options" class="choice-grid"></div><label class="extra-subject">其他科目<input id="extra-subjects" placeholder="多个科目用顿号分隔"></label></fieldset>
+<fieldset><legend>学生年级</legend><div class="form-grid profile-grid"><label>从<select id="grade-from"></select></label><label>到<select id="grade-to"></select></label></div></fieldset>
+<fieldset><legend>教学地点</legend><div class="region-picker"><label>省份<select id="region-province"></select></label><label>城市<select id="region-city"></select></label><label>区县<select id="region-county"></select></label><button type="button" id="add-region">添加地区</button></div><div id="selected-regions" class="chips"></div></fieldset>
+<div class="sticky-actions"><button class="primary" type="submit">保存并筛选</button></div></form></section>
+<section id="view-groups" class="view" hidden><div class="group-manager"><h1>微信群</h1>
+<form id="add-group-form" class="group-add"><label for="manual-group-name">微信群名</label><div class="group-input-row"><input id="manual-group-name" required maxlength="120" autocomplete="off" placeholder="输入完整群名"><button id="add-group" type="submit">添加</button></div></form>
+<div class="group-list-heading"><h2>筛选来源</h2><span id="group-count" class="muted" role="status"></span></div><div id="group-choice"></div>
+<div class="actions group-actions"><button id="scan-selected" type="button" disabled>开始提取信息</button><button id="filter-selected" type="button" class="primary">开始筛选</button></div><p class="muted">提取信息会读取所选群的微信记录；筛选只处理已保存在本机的信息。</p></div></section>
+<section id="view-model" class="view" hidden><h1>模型设置</h1><p id="model-help" class="muted">模型配置保存在本机。</p><form id="model-form" class="narrow">
+<label class="group-checkbox"><input id="ai-enabled" type="checkbox"><span>启用 AI 核验未确定订单</span></label><p class="muted">关闭时不调用 AI。启用后可按需联网搜索地点，只发送脱敏地点和核验所需内容；模型与搜索按所配置服务计费。</p><label>接口基础地址<input id="model-base" type="url" placeholder="https://你的服务地址/v1"></label><label>模型名称<input id="model-name" placeholder="模型名称"></label><label>API 密钥<input id="model-key" type="password" autocomplete="off" placeholder="留空保留已保存密钥"></label><p id="key-state" class="muted"></p><p class="muted">密钥在本机加密保存，重启后自动加载。</p><div class="actions"><button class="primary">保存设置</button><button type="button" id="test-model">测试连接</button><button type="button" id="clear-key">清除密钥</button></div></form></section>
+</main><footer><a href="/guide" target="_blank" rel="noopener">使用说明</a></footer>
+</body></html>

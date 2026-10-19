@@ -1,0 +1,14 @@
+[project]
+name = "tutor-inbox-local"
+version = "0.1.0"
+description = "Local tutoring order finder for WeChat history"
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+authors = [{name = "Huoxixi"}]
+
+[project.urls]
+Repository = "https://github.com/Huoxixi/tutor-assistant"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
