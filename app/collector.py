@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from .models import Message, SHANGHAI
 from .history_reader import HistoryReadError, PHASE_DETAILS
+from .runtime import data_directory
 
 
 def parse_time(value, anchor, ui_relative=False):
@@ -80,7 +81,7 @@ def read_child(group, count, output, options=None, stop=None):
         from .history_reader import read_history
         options = options or {}
         streaming = options.get("stream", False)
-        diag = ReadDiagnostics(Path(__file__).resolve().parent.parent / "data" / "diagnostics" / "history-read-latest.json",
+        diag = ReadDiagnostics(data_directory() / "diagnostics" / "history-read-latest.json",
                                notify=output.put if streaming else None)
         phase, com = "initialize", None
         try:

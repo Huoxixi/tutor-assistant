@@ -1,0 +1,21 @@
+家教拾单 Windows 运行包 v0.2.0
+
+1. 将 ZIP 完整解压到自己的文件夹，不要只从压缩包内打开 EXE。
+2. 双击 TutorAssistant.exe，浏览器会自动打开本地页面。
+3. 在电脑版微信中登录自己的账号，在网页中确认授权、选择群聊，再点击提取。
+4. 本地识别和筛选不需要 AI 或 API 密钥；通勤为可选功能，需自己的高德 Web 服务 Key。
+5. 启动窗口提供“打开页面”“打开数据目录”“退出”。关闭窗口会停止程序，关闭浏览器标签不会退出程序。
+
+适用：Windows 10/11，64 位 x64；不需要安装 Python。微信版本兼容性仍需在目标客户端确认。
+本发行包未进行数字签名。真实微信提取和真实高德路线没有在其他电脑逐一验证。
+
+数据存放：%LOCALAPPDATA%\TutorAssistant\data
+升级只需解压新版本，不要覆盖或删除该数据目录。密钥由当前 Windows 用户加密，不能直接迁移给别人使用。
+程序不会在启动、授权、刷新或本地筛选时自动查询高德，也不会自动联系订单发布者。
+
+下载程序不附带作者聊天、收藏、出发点或密钥。请始终使用自己的微信账号和配置。
+说明：README.md、docs\amap-setup.md、docs\commute-workflow.md
+源码：https://github.com/Huoxixi/tutor-assistant
+第三方许可：THIRD_PARTY_NOTICES.md、third_party_licenses
+
+第三方 pyweixin 以未修改 Python 源码保存在 _internal\pyweixin，可替换为兼容修改版；其精确发行版源码归档和许可包含在 third_party_licenses 中。本项目 MIT 许可不取代第三方许可。

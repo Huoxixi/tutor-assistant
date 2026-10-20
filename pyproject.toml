@@ -1,6 +1,6 @@
 [project]
 name = "tutor-inbox-local"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local tutoring order finder for WeChat history"
 requires-python = ">=3.11"
 readme = "README.md"

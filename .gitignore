@@ -10,6 +10,15 @@
 !/requirements-wechat.txt
 !/requirements-lock.txt
 !/run.py
+!/desktop.py
+!/requirements-build.txt
+!/packaging/
+/packaging/*
+!/packaging/TutorAssistant.spec
+!/packaging/START_HERE.txt
+!/packaging/hooks/
+/packaging/hooks/*
+!/packaging/hooks/hook-pyweixin.py
 !/start.ps1
 !/start.cmd
 
@@ -38,16 +47,19 @@
 !/tests/test_public_parser.py
 !/tests/test_travel.py
 !/tests/test_no_ai_workflow.py
+!/tests/test_desktop_runtime.py
 
 !/tools/
 /tools/*
 !/tools/__init__.py
 !/tools/build_regions.py
+!/tools/build_windows.py
 
 !/docs/
 /docs/*
 !/docs/amap-setup.md
 !/docs/commute-workflow.md
+!/docs/windows-release.md
 !/docs/images/
 /docs/images/*
 !/docs/images/authorization-preview.png

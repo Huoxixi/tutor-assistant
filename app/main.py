@@ -16,6 +16,7 @@ from .service import Service
 from .store import Store
 from .key_store import KeyStoreError
 from .travel import TravelError
+from .runtime import database_path
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -63,7 +64,7 @@ class TravelChoiceBody(BaseModel):
 
 def create_app(data_path=None):
     app = FastAPI(title="家教拾单", docs_url=None, redoc_url=None)
-    store = Store(data_path or os.environ.get("TUTOR_DB", str(ROOT / "data" / "tutor.sqlite3")))
+    store = Store(data_path or database_path())
     service = Service(store)
     app.state.store, app.state.service = store, service
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver", "[::1]"])

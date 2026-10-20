@@ -1,6 +1,6 @@
 # 第三方技术、数据与许可证
 
-版本来自 2026-10-19 本机已安装发行包元数据，不表示最新版本；完整环境快照见 [requirements-lock.txt](requirements-lock.txt)。源码仓库不捆绑第三方 Python 包，安装时通过包管理器获取。
+应用依赖版本来自 2026-10-19 本机已安装发行包元数据，不表示最新版本；完整环境快照见 [requirements-lock.txt](requirements-lock.txt)。源码仓库不捆绑第三方 Python 包；Windows 运行包捆绑所需依赖和 Python，附实际版本清单与可取得的许可文本于 `third_party_licenses/`。构建工具固定 PyInstaller 6.22.3，配置见 `requirements-build.txt`。
 
 ## 核心组件
 
@@ -27,11 +27,13 @@
 | PyAutoGUI 0.9.54 | 适配包的桌面操作依赖 | [BSD](https://github.com/asweigart/pyautogui/blob/master/LICENSE.txt) |
 | pyperclip 1.11.0 | 适配包的剪贴板依赖 | [BSD](https://github.com/asweigart/pyperclip/blob/master/LICENSE.txt) |
 
-本项目固定安装 `pywechat127==1.9.8`，通过正常 Python 导入使用其 `pyweixin` 模块，不复制第三方包源码到仓库，不修改其安装文件。历史遍历、消息边界、时间解析与本地订单识别位于本项目代码中。
+本项目固定使用 `pywechat127==1.9.8`，通过正常 Python 导入其 `pyweixin` 模块，不复制第三方包源码到 Git 仓库、不修改其实现。运行包将未修改的模块以 `.py` 文件放在 `_internal/pyweixin/`，可替换为兼容修改版，不将它封入 PYZ。精确版本的 PyPI 源码归档与 SHA-256、发行包元数据、LGPLv3 / GPLv3 及 LGPL2.1 文本附在 `third_party_licenses/`，源码归档也单独提供为 Release 附件。对应应用源码、构建脚本和打包配置随 Git 标签公开，不限制为调试此类修改而进行的逆向工程。历史遍历、消息边界、时间解析与本地订单识别位于本项目代码中。
 
-**版本许可区别：** 1.9.8 发行包的 License classifier 为 LGPLv3，License 字段为 LGPL；2026-10-19 核对的[上游主分支 LICENSE](https://github.com/Hello-Mr-Crab/pywechat/blob/main/LICENSE) 则为 LGPL 2.1 文本。这里按固定发行包元数据标注，不将两者混写成同一版本。请保留实际发行物的许可证与来源，不将本项目 MIT 声明当作微信组件的许可证。升级、复制实现或制作捆绑安装包前，重新核对对应版本许可及分发要求。
+**版本许可区别：** 1.9.8 发行包的 License classifier 为 LGPLv3，License 字段为 LGPL；2026-10-19 核对的[上游主分支 LICENSE](https://github.com/Hello-Mr-Crab/pywechat/blob/main/LICENSE) 则为 LGPL 2.1 文本。保留这一区别和两份原文，不将本项目 MIT 声明当作微信组件的许可证。
 
 上述清单涵盖主要组件及部分传递依赖，不替代每个发行物自带的许可文件。Windows UI Automation、COM 和 DPAPI 属于系统能力，微信客户端属于独立第三方产品，均不随本仓库分发。
+
+运行包还包括微信组件导入所需的 NumPy、Pillow、sounddevice、soundfile 及传递依赖。未使用的 ASIO 驱动不分发。soundfile 所载 libsndfile 1.2.2 DLL 保持独立、可替换；包内及 Release 附件另有其上游 1.2.2 源码归档和校验和，按 LGPL2.1 分别保留许可。Tcl/Tk 运行时、PyInstaller bootloader 许可及其他依赖通知保留在包内对应目录和 `third_party_licenses/`。
 
 ## 内置地区数据：Vant Area Data
 
