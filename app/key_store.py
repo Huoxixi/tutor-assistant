@@ -28,9 +28,11 @@ def _unprotect(data):
 class LocalKeyStore:
     MAGIC = b"TAKEY1\x00"
 
-    def __init__(self, database_path):
+    def __init__(self, database_path, purpose="model"):
         database = Path(database_path).resolve()
-        self.path = database.with_name(database.stem + ".model-key.dpapi")
+        if purpose not in {"model", "amap"}:
+            raise ValueError("Unknown credential purpose")
+        self.path = database.with_name(database.stem + "." + purpose + "-key.dpapi")
         self.lock = threading.Lock()
 
     @property

@@ -6,7 +6,6 @@ const names={subject:'科目',grade:'年级',city:'城市',area:'区域/街道/�
 const stateNames={complete:'读取范围已覆盖',incomplete:'采集不完整',cancelled:'已取消',queued:'等待中',reading:'正在读取',interrupted:'上次任务中断',running:'正在扫描'};
 const readStateName=report=>['complete','incomplete'].includes(report.state)&&(report.count>0||report.groups?.some(g=>g.count>0))?'已读取':(stateNames[report.state]||report.state);
 const messageNames={received:'等待解析',error:'解析失败',unparsed:'此类型未解析',processed:'已解析',ignored:'普通聊天'};
-const reviewResults=new Map();
 let state={},view='orders',bucket='matched',data=[],favoriteData=[],selected=null,timer=null;
 let stopping=false,taskStarting=false,taskKind=null,authorizationSaving=false;
 let regions=[],regionIndex={},selectedRegions=[],selectedGroups=new Set(),groupCatalog=[],lastCatalog='',groupSaving=false;
@@ -32,8 +31,11 @@ function pretty(value){
   return String(value??'未说明');
 }
 function notify(text,error=false){
-  const el=$('#notice');el.hidden=false;el.className='toast'+(error?' error':'');el.textContent=text;
-  clearTimeout(timer);timer=setTimeout(()=>{el.hidden=true},error?9000:3200);
+  const el=$('#notice');el.hidden=false;el.className='toast'+(error?' error':'');
+  el.setAttribute('role',error?'alert':'status');
+  el.innerHTML='<span class="toast-message">'+(error?'<strong>操作未完成</strong>':'')+esc(text)+'</span><button type="button" class="toast-dismiss" aria-label="关闭提醒"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>';
+  el.querySelector('.toast-dismiss').onclick=()=>{el.hidden=true};
+  clearTimeout(timer);if(!error)timer=setTimeout(()=>{el.hidden=true},3200);
 }
 async function api(path,method='GET',body){
   const response=await fetch(path,{method,headers:{'Content-Type':'application/json','X-Tutor-Client':'local-ui'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -50,14 +52,14 @@ function savedCounts(){return state.selected_counts||state.counts||{}}
 function renderWeChatAuthorization(){
   const authorized=state.wechat_authorization?.authorized===true;
   $('#wechat-authorization').classList.toggle('warn',!authorized);
-  $('#wechat-authorization-status').textContent=authorized?'已授权使用电脑微信 · 仅本次运行有效':'尚未授权使用电脑微信';
+  $('#wechat-authorization-status').textContent=authorized?'微信已授权 · 仅本次运行':'微信读取未授权';
+  $('#connection').hidden=!authorized;
   $('#wechat-consent-copy').hidden=authorized;
   $('#authorize-wechat').hidden=authorized;
   $('#authorize-wechat').disabled=authorizationSaving||!state.wechat_authorization;
   $('#authorize-wechat').textContent=authorizationSaving?'正在授权…':'同意并授权';
   $('#revoke-wechat').hidden=!authorized;$('#revoke-wechat').disabled=authorizationSaving;
   $('#check-wechat').hidden=!authorized;$('#check-wechat').disabled=authorizationSaving||state.busy||taskStarting;
-  if(!authorized)$('#connection').textContent='授权后才能检查并连接电脑微信；已有信息可继续本地筛选。';
   $$('[data-retry-group]').forEach(button=>button.disabled=!authorized||state.busy||taskStarting||authorizationSaving);
 }
 function renderProgress(){
@@ -71,10 +73,12 @@ function renderProgress(){
     $(id).setAttribute('aria-busy',String(Boolean(filtering)));
   }
   $('#orders-content').setAttribute('aria-busy',String(Boolean(filtering)));
-  if(filtering)$('#workflow-hint').textContent=stopping?'正在停止筛选，已完成的结果保留。':'正在筛选已保存的信息，结果会自动更新。';
+  const counts=savedCounts();
+  $('#workflow-hint').hidden=active||Boolean(state.groups?.length&&Object.values(counts).some(Boolean)&&!(counts.received||counts.error));
   $('#cancel').hidden=!state.busy;$('#cancel').disabled=stopping;
   $('#processing').hidden=!active&&p.state==='idle';
   $('#processing').classList.toggle('active',active);
+  $('#processing').classList.toggle('inline-alert',!active&&['partial','extraction_partial','interrupted'].includes(p.state));
   $('#processing-spinner').hidden=!active||stopping;
   $('#processing-text').textContent=stopping?'正在停止，已保存结果保留':starting?(taskKind==='filter'?'正在筛选已保存的信息…':'正在开始提取信息…'):({processing:state.parser?.mode==='local'?'正在本地识别和筛选':'正在筛选',partial:'部分解析失败，可重试',cancelled:'已停止解析'})[p.state]||p.detail||'';
   if(!starting&&p.total)$('#processing-text').textContent+=' · '+p.processed+'/'+p.total+'条'+(p.errors?' · '+p.errors+'条失败':'');
@@ -89,20 +93,19 @@ function syncTaskControls(){
   const saved=Object.values(savedCounts()).reduce((sum,count)=>sum+count,0);
   $('#scan').disabled=busy||!authorized;$('#scan-selected').disabled=busy||!authorized||groupSaving||!selectedGroups.size;
   $('#filter').disabled=busy||!saved;$('#filter-selected').disabled=busy||groupSaving||!selectedGroups.size||!saved;
-  $('#retry-process').disabled=busy;$('#verify-pending').disabled=busy;
+  $('#retry-process').disabled=busy;
   const pending=(savedCounts().received||0)+(savedCounts().error||0);
-  $('#workflow-hint').textContent=!state.groups?.length?'先在“微信群”选择来源，再提取或筛选。':!saved?'先点击“开始提取信息”，保存消息后再筛选。':pending?'已保存 '+saved+' 条信息，'+pending+' 条待筛选。点击“开始筛选”即可。':'已保存 '+saved+' 条信息，可直接开始筛选；需要更新消息时再提取。';
+  $('#workflow-hint').textContent=!state.groups?.length?'请先在“微信群”选择来源。':!saved?'尚无消息，请先提取。':pending?pending+' 条待筛选，点击“开始筛选”。':'已保存 '+saved+' 条信息';
+  $('#workflow-hint').classList.toggle('inline-alert',!state.groups?.length||!saved||Boolean(pending));
+  $('#workflow-hint').hidden=Boolean(state.groups?.length&&saved&&!pending);
   renderWeChatAuthorization();renderProgress();
 }
 async function refreshState(){
   state=await api('/api/state');
   $('#scan').textContent='开始提取信息';
   $('#scan-selected').textContent='开始提取信息';
-  $('#test-model').disabled=state.model?.enabled===false;
   $('#scan').disabled=state.busy;
   if(!state.busy){stopping=false;if(!taskStarting)taskKind=null}
-  $('#model-help').textContent='默认只在本地核对字段。启用 AI 后，仅核验未确定条件；地点归属会搜索网页并保留来源。';
-  $('#verify-pending').hidden=!state.model?.ai_enabled;$('#verify-pending').disabled=state.busy;
   const counts=savedCounts();
   $('#retry-process').hidden=!(counts.error||0);
   $('#retry-process').disabled=state.busy;
@@ -114,14 +117,17 @@ function renderSummary(){
 }
 function renderScans(){
   const scan=state.scans?.[0];
-  $('#scan-summary').textContent=scan?readStateName(scan)+' · '+formatTime(scan.end):'尚未提取微信消息';
+  const incomplete=scan&&(scan.state==='incomplete'||scan.groups?.some(g=>g.state==='incomplete'));
+  $('.scan-panel').classList.toggle('scan-warning',Boolean(incomplete));
+  $('#scan-summary').textContent=scan?readStateName(scan)+(incomplete?' · 近48小时范围未确认':'')+' · '+formatTime(scan.end):'尚未提取微信消息';
   $('#scan-reports').innerHTML=scan?scan.groups.map(g=>'<div class="scan-report"><strong>'+esc(g.group)+' · '+esc(readStateName(g))+'</strong><div>'+esc(g.state==='incomplete'&&g.count>0?'已保存消息，可继续整理和筛选；48小时范围尚未确认':g.detail)+' · 已保存 '+(g.count||0)+' 条</div><div class="muted">最早 '+esc(formatTime(g.earliest))+' ／ 最晚 '+esc(formatTime(g.latest))+' ／ 时间不明 '+(g.unknown_times||0)+' 条</div>'+(g.state==='incomplete'||g.state==='cancelled'?'<div class="actions"><button data-retry-group="'+esc(g.group)+'">'+(g.count>0?'继续读取':'重试这个群')+'</button></div>':'')+'</div>').join(''):'<p class="muted">首次扫描前，请在“微信群”选择来源。</p>';
 }
 async function checkConnection(){
   if(state.wechat_authorization?.authorized!==true){renderWeChatAuthorization();return}
   const result=await api('/api/connection');
   if(state.wechat_authorization?.authorized!==true)return;
-  $('#connection').textContent=result.adapter_installed?(result.wechat_running?(state.parser?.mode==='local'?'微信已启动 · 本地识别与筛选':'微信已启动'):'请登录电脑版微信'):'微信读取组件未安装';
+  $('#connection').textContent=result.adapter_installed?(result.wechat_running?'微信已启动':'请登录电脑版微信'):'微信读取组件未安装';
+  $('#connection').classList.toggle('attention-text',!result.adapter_installed||!result.wechat_running);
 }
 async function setWeChatAuthorization(authorized){
   if(authorizationSaving)return;
@@ -134,15 +140,75 @@ async function setWeChatAuthorization(authorized){
     else notify('已撤销授权，正在提取的任务会停止；已保存的信息保留');
   }finally{authorizationSaving=false;syncTaskControls()}
 }
+const sidebarMedia=window.matchMedia('(max-width:650px)');
+let sidebarCollapsed=true;
+try{sidebarCollapsed=localStorage.getItem('tutor-sidebar-collapsed')!=='0'}catch{}
+function syncSidebarLayout(){
+  const mobile=sidebarMedia.matches;
+  $('.app-shell').classList.toggle('sidebar-collapsed',!mobile&&sidebarCollapsed);
+  const button=$('#collapse-sidebar');
+  const label=mobile?'关闭侧边栏':sidebarCollapsed?'展开侧边栏':'收起侧边栏';
+  button.setAttribute('aria-label',label);button.title=label;
+  button.setAttribute('aria-expanded',String(mobile?$('#toggle-nav').getAttribute('aria-expanded')==='true':!sidebarCollapsed));
+}
+function setSidebarOpen(open){
+  const mobile=sidebarMedia.matches;
+  const expanded=mobile&&open;
+  const sidebar=$('#site-sidebar');
+  const wasInside=sidebar.contains(document.activeElement);
+  const wasOpen=sidebar.classList.contains('is-open');
+  sidebar.classList.toggle('is-open',expanded);
+  sidebar.inert=mobile&&!expanded;
+  $('.workspace').inert=expanded;
+  if(expanded){sidebar.setAttribute('role','dialog');sidebar.setAttribute('aria-modal','true')}
+  else{sidebar.removeAttribute('role');sidebar.removeAttribute('aria-modal')}
+  if(mobile&&!expanded)sidebar.setAttribute('aria-hidden','true');else sidebar.removeAttribute('aria-hidden');
+  $('#toggle-nav').setAttribute('aria-expanded',String(expanded));
+  $('#nav-backdrop').hidden=!expanded;
+  document.body.classList.toggle('nav-open',expanded);
+  syncSidebarLayout();
+  if(expanded)sidebar.querySelector('.nav.active')?.focus();
+  else if(mobile&&(wasInside||wasOpen))$('#toggle-nav').focus();
+  else if(!mobile&&document.activeElement===$('#toggle-nav'))sidebar.querySelector('.nav.active')?.focus();
+}
+$('#collapse-sidebar').addEventListener('click',()=>{
+  if(sidebarMedia.matches){setSidebarOpen(false);return}
+  sidebarCollapsed=!sidebarCollapsed;
+  try{localStorage.setItem('tutor-sidebar-collapsed',sidebarCollapsed?'1':'0')}catch{}
+  syncSidebarLayout();
+});
+$('#toggle-nav').addEventListener('click',()=>setSidebarOpen($('#toggle-nav').getAttribute('aria-expanded')!=='true'));
+$('#nav-backdrop').addEventListener('click',()=>setSidebarOpen(false));
+sidebarMedia.addEventListener('change',()=>setSidebarOpen(false));
+document.addEventListener('keydown',event=>{
+  const sidebar=$('#site-sidebar');
+  if(!sidebarMedia.matches||!sidebar.classList.contains('is-open'))return;
+  if(event.key==='Escape'){event.preventDefault();setSidebarOpen(false);return}
+  if(event.key!=='Tab')return;
+  const stops=[...sidebar.querySelectorAll('button:not(:disabled),a[href]')].filter(el=>el.getClientRects().length);
+  const first=stops[0],last=stops[stops.length-1];
+  if(!first)return;
+  if(!sidebar.contains(document.activeElement)||(event.shiftKey?document.activeElement===first:document.activeElement===last)){
+    event.preventDefault();(event.shiftKey?last:first).focus();
+  }
+});
+setSidebarOpen(false);
 async function go(next){
+  if(!['orders','favorites','preferences','groups','travel'].includes(next))next='orders';
   view=next;selected=null;
+  $('#page-context').textContent={orders:'订单清单',favorites:'我的收藏',preferences:'需求设置',groups:'微信群',travel:'通勤计算'}[next];
+  const activeView=$('#view-'+next),heading=activeView.querySelector('.heading-row')||activeView.querySelector('h1');
+  if(['orders','groups'].includes(next))heading.insertAdjacentElement('afterend',$('#wechat-authorization'));
+  if(['travel','favorites'].includes(next))heading.insertAdjacentElement('afterend',$('#travel-authorization'));
+  $('#wechat-authorization').hidden=!['orders','groups'].includes(next);
+  $('#travel-authorization').hidden=!['travel','favorites'].includes(next);
+  setSidebarOpen(false);
   $$('.view').forEach(el=>el.hidden=el.id!=='view-'+next);
-  $$('.nav').forEach(el=>el.classList.toggle('active',el.dataset.view===next));
+  $$('.nav').forEach(el=>{const active=el.dataset.view===next;el.classList.toggle('active',active);if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current')});
   if(next==='orders')await loadOrders();
   if(next==='favorites')await loadFavorites();
   if(next==='preferences')fillPreferences();
   if(next==='groups')fillGroups();
-  if(next==='model')fillModel();
   window.scrollTo({top:0});
 }
 function empty(title,description,buttons=''){
@@ -159,15 +225,20 @@ function price(order){
 function requirements(order){
   return ['teacher_gender','school_tier','teacher_type','education','english_score','teaching_language'].filter(k=>fact(order,k)!=null).map(k=>(k==='teacher_gender'?'教员'+pretty(fact(order,k)):k==='english_score'?'高考英语≥'+pretty(fact(order,k)):pretty(fact(order,k)))+(order.facts[k].mode==='prefer'?'优先':'')).join(' · ')||'未注明';
 }
+function teachingLocation(order){
+  const location=fact(order,'location');
+  return typeof location==='string'&&location.trim()?location.trim():[fact(order,'city'),fact(order,'area')].filter(Boolean).join(' · ')||'位置未说明';
+}
 function table(orders,favorites=false){
-  return '<div class="table-scroll"><table><thead><tr><th>单号 / 学员</th><th>科目</th><th>授课位置</th><th>课酬</th><th>上课安排</th><th>教员要求</th><th>筛选结果</th><th>操作</th></tr></thead><tbody>'+orders.map(o=>{
+  return '<div class="order-list" aria-label="'+(favorites?'收藏订单':'订单列表')+'">'+orders.map(o=>{
     const match=o.match;
     const changed=match.bucket==='rejected';
     const issues=changed?['当前条件已变化，请重新核对',...match.conflicts]:match.unknowns;
-    const sources=new Set(o.sources.map(s=>s.group)).size;
-    const locationNote=match.location_status==='unconfirmed'?'<span class="cell-sub">地区未确认 · 尚未通过地区筛选</span>':'';
-    return '<tr data-order-row="'+o.id+'"'+(selected===o.id?' class="selected"':'')+'><td><span class="reference">'+esc(o.reference||'原文未提供单号')+'</span><span class="cell-sub">'+esc([arr(fact(o,'grade')),fact(o,'student_gender')?('学员'+fact(o,'student_gender')):'学员性别未说明',fact(o,'students_count')?fact(o,'students_count')+'名学员':''].filter(Boolean).join(' · '))+'</span><span class="cell-sub">'+esc(formatTime(o.updated_at))+(o.expired?' · 已超过48小时':'')+'</span></td><td><span class="job-title">'+esc(arr(fact(o,'subject'))||'科目待确认')+'</span>'+(fact(o,'focus_subjects')?'<span class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</span>':'')+'</td><td>'+esc([fact(o,'city'),fact(o,'area')].filter(Boolean).join(' · ')||'位置未说明')+locationNote+'<span class="cell-sub">'+sources+' 个来源群'+(o.possible_duplicates.length?' · 有疑似重复单':'')+'</span></td><td><span class="money">'+esc(price(o))+'</span>'+(fact(o,'duration_hours')!=null?'<span class="cell-sub">'+esc(pretty(fact(o,'duration_hours'))) +'小时/次</span>':'')+'</td><td>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+'<span class="cell-sub">'+(fact(o,'weekly_sessions')!=null?esc(pretty(fact(o,'weekly_sessions')))+'次/周':'')+'</span></td><td>'+esc(requirements(o))+'</td><td><span class="badge '+(match.bucket==='matched'?'':'pending')+'">'+(match.bucket==='matched'?'通过筛选':'待确认')+'</span><span class="cell-sub">'+esc(issues.slice(0,2).join('；')||match.reasons.slice(0,2).join('；'))+'</span></td><td><div class="cell-actions"><button data-detail="'+o.id+'" data-favorites="'+favorites+'">详情</button><button data-favorite="'+o.id+'" data-enabled="'+!o.favorite_at+'">'+(o.favorite_at?'取消收藏':'收藏')+'</button></div></td></tr>';
-  }).join('')+'</tbody></table></div>';
+  const sources=new Set(o.sources.map(s=>s.group)).size;
+    const locationNote=match.location_status==='unconfirmed'?'<span class="cell-sub attention-text">地区待核对 · 尚未通过</span>':'';
+    const secondary=[fact(o,'weekly_sessions')!=null?pretty(fact(o,'weekly_sessions'))+'次/周':'',fact(o,'duration_hours')!=null?pretty(fact(o,'duration_hours'))+'小时/次':''].filter(Boolean).join(' · ');
+    return '<article class="order-item'+(selected===o.id?' selected':'')+'" data-order-row="'+esc(o.id)+'"><div class="order-meta"><span class="reference">'+esc(o.reference||'未提供单号')+'</span><span class="badge '+(match.bucket==='matched'?'':'pending')+'">'+(match.bucket==='matched'?'通过筛选':changed?'条件已变化':'待确认')+'</span><time>'+esc(formatTime(o.updated_at))+'</time></div><div class="order-title"><h2>'+esc(title(o))+'</h2><strong class="money">'+esc(price(o))+'</strong></div><dl class="order-facts"><div><dt>授课位置</dt><dd class="teaching-location">'+esc(teachingLocation(o))+locationNote+'</dd></div><div><dt>上课安排</dt><dd>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+(secondary?'<span class="cell-sub">'+esc(secondary)+'</span>':'')+'</dd></div><div><dt>教员要求</dt><dd>'+esc(requirements(o))+'</dd></div></dl>'+(fact(o,'focus_subjects')?'<p class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</p>':'')+(issues.length||o.expired?'<p class="order-issues">'+esc([o.expired?'已超过48小时，请确认是否仍可接单':'',...issues].filter(Boolean).join('；'))+'</p>':'')+(o.favorite_at?(window.TutorTravel?.summary(o.id)||''):'')+'<div class="order-bottom"><span class="cell-sub">'+esc([fact(o,'student_gender')?'学员'+fact(o,'student_gender'):'',fact(o,'students_count')?fact(o,'students_count')+'名学员':'',sources+'个来源群',o.possible_duplicates.length?'有疑似重复单':''].filter(Boolean).join(' · '))+'</span><div class="cell-actions"><button data-detail="'+esc(o.id)+'" data-favorites="'+favorites+'" aria-expanded="'+(selected===o.id)+'">详情</button>'+(favorites&&o.favorite_at?'<button data-travel-open="'+esc(o.id)+'" data-travel-favorites="true">计算通勤</button>':'')+'<button data-favorite="'+esc(o.id)+'" data-enabled="'+!o.favorite_at+'">'+(o.favorite_at?'取消收藏':'收藏')+'</button></div></div></article>';
+  }).join('')+'</div>';
 }
 async function loadOrders(){
   const result=await api('/api/orders');
@@ -182,13 +253,13 @@ async function loadOrders(){
   else if(Object.values(counts).some(Boolean))description='可调整筛选条件。';
   $('#orders-content').innerHTML=current.length?table(current):noMessages&&!data.length?empty('尚未读取到群消息',reports.find(g=>g.state==='incomplete')?.detail||'群消息读取失败，请查看读取状态。','<button data-open-scan="true">查看读取状态</button>'):empty(bucket==='matched'?'暂时没有通过筛选的单子':'暂时没有待确认的单子',description,'<button data-view="preferences">设置接单需求</button><button data-view="groups">选择微信群</button>');
   const detail=$('#order-detail');
-  if(selected&&data.some(o=>o.id===selected))renderDetail(selected,false,false);else detail.hidden=true;
+  if(selected&&current.some(o=>o.id===selected))renderDetail(selected,false,false);else{selected=null;detail.hidden=true}
 }
 async function loadFavorites(){
   const result=await api('/api/orders?favorites=true');
   favoriteData=result.orders;
   $('#favorites-content').innerHTML=favoriteData.length?table(favoriteData,true):empty('还没有收藏','在订单清单中收藏后，可在这里长期查看。');
-  $('#favorite-detail').hidden=true;
+  if(selected&&favoriteData.some(o=>o.id===selected))renderDetail(selected,true,false);else $('#favorite-detail').hidden=true;
 }
 function renderDetail(id,favorites=false,scroll=true){
   selected=id;
@@ -196,16 +267,19 @@ function renderDetail(id,favorites=false,scroll=true){
   if(!order)return;
   const target=$(favorites?'#favorite-detail':'#order-detail');
   const match=order.match;
-  const notices=[...match.unknowns,...match.conflicts];
+  const notices=[...new Set([...match.unknowns,...match.conflicts])];
+  if(match.bucket==='rejected')notices.unshift('条件已变，请重新核对');
+  if(order.expired)notices.push('订单已超过48小时，请确认是否仍可接单');
+  const caution=notices.length?'<div class="inline-alert order-caution"><strong>接单前请核对</strong><ul>'+notices.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul></div>':'';
   target.hidden=false;
   const primary=order.sources.find(source=>!source.is_update)||order.sources[0];
   const rawSource=source=>'<article class="source"><p class="muted">'+esc(source.group)+' · '+esc(source.sender)+' · '+esc(formatTime(source.sent_at))+'</p><div class="raw">'+esc(source.text)+'</div></article>';
-  const verification=reviewResults.get(id)||order.verification;
-  const verifiedSources=verification?.sources||[];
-  target.innerHTML='<section class="detail-panel"><div class="heading-row"><h2>'+esc(order.reference||'无单号')+' · 原消息</h2><button data-close-detail="'+(favorites?'favorite':'order')+'">收起详情</button></div><div class="order-original">'+(primary?rawSource(primary):'<p>原消息暂不可用</p>')+'</div>'+(order.sources.length>1?'<details><summary>补充消息与其他来源（'+(order.sources.length-1)+'）</summary>'+order.sources.filter(source=>source!==primary).map(rawSource).join('')+'</details>':'')+'<details class="local-checks"><summary>本地字段核对与筛选依据</summary><ul>'+match.reasons.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'+(notices.length?'<ul>'+notices.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>':'')+'<table class="evidence-table"><thead><tr><th>字段</th><th>值</th><th>原文依据</th></tr></thead><tbody>'+Object.entries(order.facts).map(([key,f])=>'<tr><td>'+esc(state.labels?.[key]||key)+(f.mode==='prefer'?'（偏好）':'')+'</td><td>'+esc(pretty(f.value))+'</td><td>'+esc(f.evidence)+'</td></tr>').join('')+'</tbody></table></details>'+(verification?'<div class="ai-review"><h3>AI 核验依据</h3><p>'+esc(verification.summary)+'</p>'+verifiedSources.map(source=>'<p><a href="'+esc(source.url)+'" target="_blank" rel="noopener noreferrer">'+esc(source.title||'网页来源')+'</a></p><blockquote>'+esc(source.excerpt)+'</blockquote>').join('')+'</div>':'')+(state.model?.ai_enabled&&match.bucket==='pending'?'<button data-review="'+esc(id)+'" data-favorites="'+favorites+'">AI 核验未确定条件</button>':'')+'</section>';
-  $$('[data-order-row]').forEach(row=>row.classList.toggle('selected',row.dataset.orderRow===id));
+  target.innerHTML='<section class="detail-panel"><div class="heading-row"><h2>'+esc(order.reference||'无单号')+' · 原消息</h2><button data-close-detail="'+(favorites?'favorite':'order')+'">收起详情</button></div>'+caution+'<div class="order-original">'+(primary?rawSource(primary):'<p>原消息暂不可用</p>')+'</div>'+(order.sources.length>1?'<details><summary>补充消息与其他来源（'+(order.sources.length-1)+'）</summary>'+order.sources.filter(source=>source!==primary).map(rawSource).join('')+'</details>':'')+'<details class="local-checks"><summary>本地字段核对与筛选依据</summary><ul>'+match.reasons.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'+'<table class="evidence-table"><thead><tr><th>字段</th><th>值</th><th>原文依据</th></tr></thead><tbody>'+Object.entries(order.facts).map(([key,f])=>'<tr><td>'+esc(state.labels?.[key]||key)+(f.mode==='prefer'?'（偏好）':'')+'</td><td>'+esc(pretty(f.value))+'</td><td>'+esc(f.evidence)+'</td></tr>').join('')+'</tbody></table></details>'+'</section>';
+  $$('[data-order-row]').forEach(row=>{const active=row.dataset.orderRow===id;row.classList.toggle('selected',active);row.querySelector('[data-detail]')?.setAttribute('aria-expanded',String(active))});
+  target.insertAdjacentHTML('beforeend',window.TutorTravel?.detail(id,favorites,Boolean(order.favorite_at))||'');
   if(scroll){
-    target.scrollIntoView({behavior:'auto',block:'start'});
+    if(window.matchMedia('(max-width:1099px)').matches)target.scrollIntoView({behavior:'auto',block:'start'});
+    else target.closest('.order-reader').scrollTop=0;
     const heading=target.querySelector('h2');heading.tabIndex=-1;heading.focus({preventScroll:true});
   }
 }
@@ -271,11 +345,6 @@ function syncSubjects(){
   });
   $('#extra-subjects').disabled=all.checked;
 }
-function fillModel(){
-  $('#ai-enabled').checked=state.model?.ai_enabled===true;
-  $('#model-base').value=state.model?.base_url||'';$('#model-name').value=state.model?.model||'';$('#model-key').value='';
-  $('#key-state').textContent=(state.model?.key_load_error?'本机密钥加载失败，请重新填写。':state.model?.key_saved?'密钥已在本机加密保存。':state.model?.key_configured?'当前已配置密钥，重新保存可在本机保留。':'尚未填写密钥。')+' 字段识别与筛选均在本地完成。';
-}
 async function startScan(groups){
   if(state.busy||taskStarting)return;
   if(state.wechat_authorization?.authorized!==true){notify('请先同意并授权使用电脑微信',true);$('#authorize-wechat').focus();return}
@@ -305,8 +374,7 @@ document.addEventListener('click',event=>{
   if(button.dataset.openScan){const panel=$('.scan-panel');panel.open=true;panel.scrollIntoView({block:'nearest'});$('#scan-summary').focus();return}
   if(button.dataset.bucket){bucket=button.dataset.bucket;selected=null;syncTabs();return action(loadOrders)}
   if(button.dataset.detail)return renderDetail(button.dataset.detail,button.dataset.favorites==='true');
-  if(button.dataset.review)return action(async()=>{const result=await api('/api/orders/'+button.dataset.review+'/review','POST',{});reviewResults.set(button.dataset.review,result);await refreshState();await(view==='favorites'?loadFavorites():loadOrders());notify(result.summary||'核验完成，已按筛选条件重新判断')},button);
-  if(button.dataset.closeDetail){$(button.dataset.closeDetail==='favorite'?'#favorite-detail':'#order-detail').hidden=true;document.querySelector('[data-detail="'+selected+'"]')?.focus();selected=null;return}
+  if(button.dataset.closeDetail){$(button.dataset.closeDetail==='favorite'?'#favorite-detail':'#order-detail').hidden=true;const opener=$$('.view:not([hidden]) [data-detail]').find(el=>el.dataset.detail===selected);opener?.focus({preventScroll:true});$$('[data-order-row]').forEach(el=>el.classList.remove('selected'));$$('[data-detail]').forEach(el=>el.setAttribute('aria-expanded','false'));selected=null;return}
   if(button.dataset.favorite)return action(async()=>{await api('/api/orders/'+button.dataset.favorite+'/favorite','PUT',{enabled:button.dataset.enabled==='true'});await(view==='favorites'?loadFavorites():loadOrders())},button);
   if(button.dataset.removeRegion){selectedRegions=selectedRegions.filter(code=>code!==button.dataset.removeRegion);renderSelectedRegions();return}
   if(button.dataset.retryGroup)return action(()=>startScan([button.dataset.retryGroup]),button);
@@ -377,15 +445,7 @@ async function stopTask(){
 }
 $('#cancel').addEventListener('click',stopTask);
 $('#stop-processing').addEventListener('click',stopTask);
-$('#verify-pending').addEventListener('click',()=>action(async()=>{await api('/api/verify','POST',{limit:20});await refreshState()},$('#verify-pending')));
 $('#retry-process').addEventListener('click',()=>action(startFilter,$('#retry-process')));
-$('#model-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
-  const body={base_url:$('#model-base').value.trim(),model:$('#model-name').value.trim(),ai_enabled:$('#ai-enabled').checked};
-  if($('#model-key').value)body.api_key=$('#model-key').value;
-  await api('/api/model','PUT',body);await refreshState();fillModel();notify('模型设置已保存');
-},event.submitter)});
-$('#test-model').addEventListener('click',()=>action(async()=>{await api('/api/model/test','POST',{});notify('模型连接正常')},$('#test-model')));
-$('#clear-key').addEventListener('click',()=>action(async()=>{await api('/api/model','PUT',{base_url:state.model?.base_url||'',model:state.model?.model||'',api_key:''});await refreshState();fillModel();notify('本机保存的密钥已清除')},$('#clear-key')));
 async function boot(){
   try{
     const result=await api('/api/regions');regions=result.provinces;
@@ -396,8 +456,8 @@ async function boot(){
         for(const d of c.children)regionIndex[d.code]={label:regionIndex[c.code].label+' / '+d.name};
       }
     }
-    await refreshState();selectedGroups=new Set(state.groups||[]);await checkConnection();fillGroups();await loadOrders();
-    if(location.hash==='#model')await go('model');
+    await refreshState();selectedGroups=new Set(state.groups||[]);await checkConnection();fillGroups();
+    await go(['#travel','#model'].includes(location.hash)?'travel':'orders');
   }catch(error){notify('连接失败：'+error.message,true)}
   setInterval(async()=>{
     try{const wasBusy=state.busy;await refreshState();if((wasBusy||state.busy)&&view==='orders')await loadOrders()}

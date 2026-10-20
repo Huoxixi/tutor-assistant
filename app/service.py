@@ -12,11 +12,13 @@ from .matching import match
 from .models import now
 from .key_store import KeyStoreError, LocalKeyStore
 from .deduplication import order_key,deduplicate_orders
+from .travel import TravelService
 
 
 class Service:
     def __init__(self, store, collector=None):
         self.store = store
+        self.travel = TravelService(store)
         self.collector = collector or Collector()
         self.key_store = LocalKeyStore(store.path)
         self.key_load_error = False
@@ -77,11 +79,12 @@ class Service:
 
     @property
     def model_enabled(self):
-        return self.store.get("cloud_model_enabled", True) is True
+        # Keep historic settings/keys for recovery, but this product flow is local + Amap.
+        return False
 
     @property
     def ai_enabled(self):
-        return self.model_enabled and self.store.get('ai_verification_enabled',False) is True
+        return False
 
     def verification_key(self, order):
         context=landmark_context(order)

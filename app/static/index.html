@@ -1,29 +1,35 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>家教拾单 · 我的家教机会</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>家教拾单 · 我的家教机会</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script><script src="/static/travel.js" defer></script></head>
 <body>
-<header class="site-header"><div class="brand">家教拾单</div><nav aria-label="主要导航">
-<button class="nav active" data-view="orders">订单清单</button><button class="nav" data-view="favorites">我的收藏</button><button class="nav" data-view="preferences">需求设置</button><button class="nav" data-view="groups">微信群</button><button class="nav" data-view="model">模型设置</button>
-</nav></header>
+<div class="app-shell">
+<aside id="site-sidebar" class="site-sidebar" aria-label="侧边导航"><div class="sidebar-heading"><div class="brand">家教拾单</div><button id="collapse-sidebar" class="sidebar-toggle" type="button" aria-label="收起侧边栏" title="收起侧边栏" aria-expanded="true" aria-controls="sidebar-navigation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button></div><nav id="sidebar-navigation" aria-label="主要导航"><button class="nav active" data-view="orders" aria-label="订单清单" title="订单清单" aria-current="page"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span class="nav-label">订单清单</span></button><button class="nav" data-view="favorites" aria-label="我的收藏" title="我的收藏"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 5.5a5 5 0 0 0-7.1 0L12 6.9l-1.4-1.4a5 5 0 0 0-7.1 7.1L12 21l8.5-8.4a5 5 0 0 0 0-7.1Z"/></svg><span class="nav-label">我的收藏</span></button><button class="nav" data-view="preferences" aria-label="需求设置" title="需求设置"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg><span class="nav-label">需求设置</span></button><button class="nav" data-view="groups" aria-label="微信群" title="微信群"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11a8 8 0 0 1-8 8H6l-4 3 1-6a8 8 0 0 1 6-13h4a8 8 0 0 1 8 8Z"/><path d="M7 10h10M7 14h6"/></svg><span class="nav-label">微信群</span></button><button class="nav" data-view="travel" aria-label="通勤计算" title="通勤计算"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h6a4 4 0 0 1 0 8H9a3 3 0 0 0 0 6h6"/></svg><span class="nav-label">通勤计算</span></button></nav><div class="sidebar-foot"><span>本地筛选 · 高德通勤</span><a href="/guide" target="_blank" rel="noopener">使用说明</a></div></aside>
+<button id="nav-backdrop" class="nav-backdrop" type="button" aria-label="关闭导航" hidden></button>
+<div class="workspace"><header class="workspace-header"><button id="toggle-nav" type="button" aria-controls="site-sidebar" aria-expanded="false">菜单</button><span class="workspace-brand">家教拾单</span><span id="page-context">订单清单</span><a href="/guide" target="_blank" rel="noopener">使用说明</a></header>
 <main>
 <div id="notice" class="toast" role="status" hidden></div>
+<section id="travel-authorization" class="connection warn" aria-label="高德查询授权" hidden>
+<strong id="travel-consent-status" role="status">高德查询尚未授权</strong>
+<p id="travel-consent-copy">查询时向高德发送地点与坐标，可能产生费用；不发送聊天全文或发布者信息。授权仅本次运行有效，可随时撤销。</p>
+<p id="travel-authorization-key-status" class="attention-text" hidden>请先保存高德 Key，再授权查询。</p>
+<div class="actions"><button id="travel-authorize" type="button" class="primary" disabled>同意并授权高德</button><button id="travel-revoke" type="button" hidden>撤销高德授权</button><button id="travel-setup-key" type="button" hidden>配置高德服务</button></div>
+</section>
 <section id="wechat-authorization" class="connection warn" aria-label="电脑微信授权">
-<strong id="wechat-authorization-status" role="status">尚未授权使用电脑微信</strong>
-<p id="wechat-consent-copy">授权后，程序可操作本机已登录的微信窗口，读取你所选群聊近48小时内可访问的文字消息，并保存到本机。仅在你点击“开始提取信息”时读取。本次授权在程序重启后失效，可随时撤销。</p>
+<strong id="wechat-authorization-status" role="status">提取微信前需授权 · 本地筛选不受影响</strong>
+<p id="wechat-consent-copy">点击提取时，读取所选群近48小时文字并保存到本机。仅本次运行有效，可随时撤销。</p>
 <div class="actions"><button id="authorize-wechat" type="button" class="primary" disabled>同意并授权</button><button id="revoke-wechat" type="button" hidden>撤销授权</button><button id="check-wechat" type="button" hidden>检查连接</button></div>
-<p id="connection" role="status">授权后才能检查并连接电脑微信；已有信息可继续本地筛选。</p>
+<p id="connection" role="status" hidden></p>
 </section>
 <div id="processing" class="processing" hidden><span id="processing-spinner" class="spinner" aria-hidden="true" hidden></span><span id="processing-text" role="status"></span><button id="stop-processing" type="button" hidden>停止</button></div>
 <section id="view-orders" class="view">
-<div class="heading-row"><div><h1>家教订单</h1><p class="muted">最近 48 小时</p></div><div class="actions"><button id="scan" type="button" disabled>开始提取信息</button><button id="filter" type="button" class="primary">开始筛选</button><button id="verify-pending" hidden>AI 核验待确认</button><button id="retry-process" hidden>重试筛选</button><button id="cancel" hidden>停止任务</button></div></div>
+<div class="heading-row"><div><h1>家教订单</h1><p class="muted">最近 48 小时</p></div><div class="actions"><button id="scan" type="button" disabled>开始提取信息</button><button id="filter" type="button" class="primary">开始筛选</button><button id="retry-process" hidden>重试筛选</button><button id="cancel" hidden>停止任务</button></div></div>
 <p id="workflow-hint" class="muted" role="status">先提取微信消息，再筛选已保存的信息。</p>
-<details class="scan-panel"><summary id="scan-summary">尚未提取微信消息</summary><div id="scan-reports"></div></details>
+
 <div class="summary-row"><div id="rule-summary" class="chips"></div><button data-view="preferences">修改条件</button></div>
-<div class="results-toolbar"><div class="tabs" role="tablist" aria-label="筛选结果"><button role="tab" aria-selected="true" tabindex="0" data-bucket="matched">通过筛选 <span id="count-matched">0</span></button><button role="tab" aria-selected="false" tabindex="-1" data-bucket="pending">待确认 <span id="count-pending">0</span></button></div></div>
-<div id="orders-content"></div>
-<div id="order-detail" hidden></div>
+<div class="results-toolbar"><details class="scan-panel"><summary id="scan-summary">尚未提取微信消息</summary><div id="scan-reports"></div></details><div class="tabs" role="tablist" aria-label="筛选结果"><button role="tab" aria-selected="true" tabindex="0" data-bucket="matched">通过筛选 <span id="count-matched">0</span></button><button role="tab" aria-selected="false" tabindex="-1" data-bucket="pending">待确认 <span id="count-pending">0</span></button></div></div>
+<div class="order-workspace"><div id="orders-content"></div><div class="order-reader"><div class="reader-placeholder"><h2>选择订单，核对原文</h2><p>点击左侧「详情」查看完整消息与筛选依据。</p></div><div id="order-detail" hidden></div></div></div>
 </section>
-<section id="view-favorites" class="view" hidden><div class="heading-row"><h1>我的收藏</h1></div><div id="favorites-content"></div><div id="favorite-detail" hidden></div></section>
+<section id="view-favorites" class="view" hidden><div class="heading-row"><h1>我的收藏</h1></div><div class="order-workspace"><div id="favorites-content"></div><div class="order-reader"><div class="reader-placeholder"><h2>选择收藏，核对原文</h2><p>确认授课地点后，可逐条计算通勤。</p></div><div id="favorite-detail" hidden></div></div></div></section>
 
 <section id="view-preferences" class="view" hidden><h1>接单设置</h1>
 <form id="preferences-form">
@@ -43,8 +49,18 @@
 <section id="view-groups" class="view" hidden><div class="group-manager"><h1>微信群</h1>
 <form id="add-group-form" class="group-add"><label for="manual-group-name">微信群名</label><div class="group-input-row"><input id="manual-group-name" required maxlength="120" autocomplete="off" placeholder="输入完整群名"><button id="add-group" type="submit">添加</button></div></form>
 <div class="group-list-heading"><h2>筛选来源</h2><span id="group-count" class="muted" role="status"></span></div><div id="group-choice"></div>
-<div class="actions group-actions"><button id="scan-selected" type="button" disabled>开始提取信息</button><button id="filter-selected" type="button" class="primary">开始筛选</button></div><p class="muted">提取信息会读取所选群的微信记录；筛选只处理已保存在本机的信息。</p></div></section>
-<section id="view-model" class="view" hidden><h1>模型设置</h1><p id="model-help" class="muted">模型配置保存在本机。</p><form id="model-form" class="narrow">
-<label class="group-checkbox"><input id="ai-enabled" type="checkbox"><span>启用 AI 核验未确定订单</span></label><p class="muted">关闭时不调用 AI。启用后可按需联网搜索地点，只发送脱敏地点和核验所需内容；模型与搜索按所配置服务计费。</p><label>接口基础地址<input id="model-base" type="url" placeholder="https://你的服务地址/v1"></label><label>模型名称<input id="model-name" placeholder="模型名称"></label><label>API 密钥<input id="model-key" type="password" autocomplete="off" placeholder="留空保留已保存密钥"></label><p id="key-state" class="muted"></p><p class="muted">密钥在本机加密保存，重启后自动加载。</p><div class="actions"><button class="primary">保存设置</button><button type="button" id="test-model">测试连接</button><button type="button" id="clear-key">清除密钥</button></div></form></section>
+<div class="actions group-actions"><button id="scan-selected" type="button" disabled>开始提取信息</button><button id="filter-selected" type="button" class="primary">开始筛选</button></div><p class="foot">提取微信消息；筛选本机记录。</p></div></section>
+<section id="view-travel" class="view" hidden><div class="heading-row"><h1>通勤计算</h1></div>
+<section class="travel-workflow" aria-label="下一步"><div class="travel-next"><p id="travel-next-hint" role="status">先保存高德 Key。</p><button id="travel-next-step" type="button" class="primary">配置高德服务</button></div></section>
+<div class="travel-settings-layout">
+<details id="travel-service-settings" class="travel-setup" open><summary>高德服务</summary>
+<details id="travel-key-guide"><summary>还没有 Key？查看申请步骤</summary><ol><li>登录<a href="https://console.amap.com/" target="_blank" rel="noopener noreferrer">高德开放平台控制台</a>，完成开发者认证。</li><li>在“应用管理 → 我的应用”创建应用，添加 Key 时选择“Web 服务”。</li><li>将 Key 填在下方保存，不要发送到聊天或 GitHub。</li></ol><p><a href="https://lbs.amap.com/api/webservice/create-project-and-key" target="_blank" rel="noopener noreferrer">官方申请说明</a> · <a href="https://lbs.amap.com/upgrade" target="_blank" rel="noopener noreferrer">配额与费用</a></p></details>
+<form id="travel-settings-form"><label>高德 Web 服务 Key<input id="travel-key" type="password" autocomplete="off" placeholder="留空保留已保存 Key"></label><p id="travel-key-status" class="muted" role="status">尚未配置</p><label>常用出行方式<select id="travel-mode"><option value="transit">公交</option><option value="walking">步行</option><option value="driving">驾车</option></select></label><div class="actions"><button class="primary" type="submit">保存设置</button><button id="travel-clear-key" type="button">清除 Key</button></div></form>
+</details>
+<section id="travel-origin-section" class="travel-origin-section"><h2>固定出发点</h2><p id="travel-origin-status" role="status">尚未设置出发点</p><form id="travel-origin-form"><div class="form-grid profile-grid"><label>城市<input id="travel-city" maxlength="50" required placeholder="例如：上海市"></label><label>学校、住处或其他出发点<input id="travel-address" maxlength="240" required placeholder="学校、小区或道路地点"></label></div>
+<div id="travel-origin-prerequisite" class="inline-alert travel-prerequisite" role="status" hidden><span id="travel-origin-prerequisite-copy"></span><button id="travel-origin-setup" type="button">前往授权</button></div>
+<div class="actions"><button id="travel-search-origin" type="submit" aria-describedby="travel-origin-prerequisite-copy" title="正在读取通勤设置" disabled>查询并选择出发点</button><button id="travel-clear-origin" type="button">清除出发点</button></div></form><p class="foot">确认地点后保存，不读取设备位置。</p><div id="travel-origin-choices" aria-live="polite"></div></section>
+</div></section>
 </main><footer><a href="/guide" target="_blank" rel="noopener">使用说明</a></footer>
+</div></div>
 </body></html>

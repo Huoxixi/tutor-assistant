@@ -36,6 +36,8 @@
 !/tests/test_split_workflow.py
 !/tests/test_collection_failures.py
 !/tests/test_public_parser.py
+!/tests/test_travel.py
+!/tests/test_no_ai_workflow.py
 
 !/tools/
 /tools/*
@@ -44,6 +46,8 @@
 
 !/docs/
 /docs/*
+!/docs/amap-setup.md
+!/docs/commute-workflow.md
 !/docs/images/
 /docs/images/*
 !/docs/images/authorization-preview.png

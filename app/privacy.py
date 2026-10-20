@@ -1,7 +1,7 @@
 import re
 
 
-def redact(text: str, sender: str = "") -> str:
+def redact(text: str, sender: str = "", *, preserve_street_numbers: bool = False) -> str:
     replacements = []
 
     def hide(match):
@@ -11,7 +11,8 @@ def redact(text: str, sender: str = "") -> str:
     if sender and sender != "未知发布者":
         text = text.replace(sender, "【发布者】")
     # Keep the street/district used for matching, hide only the precise door number.
-    text = re.sub(r"([\u4e00-\u9fff]{1,30}(?:路|街|大道|巷))\d+(?:号|弄)(?:\d+(?:号|室|栋|幢))*", lambda m: m[1] + "【门牌已隐去】", text)
+    if not preserve_street_numbers:
+        text = re.sub(r"([\u4e00-\u9fff]{1,30}(?:路|街|大道|巷))\d+(?:号|弄)(?:\d+(?:号|室|栋|幢))*", lambda m: m[1] + "【门牌已隐去】", text)
     patterns = [
         r"(?i)https?://\S+", r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
         r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d(?:[- ]?\d){8}(?!\d)",

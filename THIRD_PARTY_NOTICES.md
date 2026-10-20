@@ -11,7 +11,7 @@
 | Uvicorn 0.54.0 | ASGI 服务 | [BSD-3-Clause](https://github.com/Kludex/uvicorn/blob/main/LICENSE.md) |
 | Pydantic 2.14.1 | 数据校验 | [MIT](https://github.com/pydantic/pydantic/blob/main/LICENSE) |
 | Starlette 1.8.0 | FastAPI 的 ASGI 基础 | [BSD-3-Clause](https://github.com/Kludex/starlette/blob/main/LICENSE.md) |
-| HTTPX 0.28.1 | 可选模型 / 搜索客户端 | [BSD-3-Clause](https://github.com/encode/httpx/blob/master/LICENSE.md) |
+| HTTPX 0.28.1 | 高德接口 HTTP 客户端 | [BSD-3-Clause](https://github.com/encode/httpx/blob/master/LICENSE.md) |
 | SQLite（标准库使用） | 本地数据存储 | [Public Domain](https://www.sqlite.org/copyright.html) |
 | pytest 9.1.1 | 测试 | [MIT](https://github.com/pytest-dev/pytest/blob/main/LICENSE) |
 
@@ -41,6 +41,12 @@
 - 本地处理：`tools/build_regions.py` 将 `app/assets/regions-source.ts` 转为 `app/assets/regions.json`，用于省、市、区县选择及本地匹配。
 - 数据记录获取日期为 2026-10-18；JSON 保留来源、许可、日期与源文件哈希。这是项目自带快照，不是实时行政区划服务。
 - 本项目未使用 Vant 前端组件库，仅使用上述地区数据。
+
+## 可选外部服务：高德开放平台
+
+通勤功能通过 HTTPX 请求高德的地理编码和路径规划接口，无需安装高德 SDK，未引入新的 Python 依赖。高德在线服务及其地图数据不属于本项目开源代码，受[高德服务协议](https://lbs.amap.com/pages/terms/)及[配额与计费规则](https://lbs.amap.com/upgrade)约束，不能因本项目采用 MIT 而视为高德服务免费或可自由分发。
+
+接口依据：[地理编码](https://lbs.amap.com/api/webservice/guide/api/georegeo)、[路径规划](https://lbs.amap.com/api/webservice/guide/api/direction)。所有真实调用均需使用者配置自己的 Web 服务 Key 并单独授权发送位置。
 
 ## 本项目许可证
 

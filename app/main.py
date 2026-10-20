@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, Field, StrictBool, SecretStr
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .collector import preflight
@@ -14,6 +15,7 @@ from .local_extraction import PARSER_VERSION
 from .service import Service
 from .store import Store
 from .key_store import KeyStoreError
+from .travel import TravelError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,6 +45,20 @@ class ModelBody(BaseModel):
 
 class ProcessBody(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=5000)
+
+
+class TravelConfigBody(BaseModel):
+    mode: Literal['transit', 'walking', 'driving'] = 'transit'
+    api_key: SecretStr | None = None
+
+
+class TravelAddressBody(BaseModel):
+    address: str = Field(min_length=2, max_length=240)
+    city: str = Field(min_length=2, max_length=50)
+
+
+class TravelChoiceBody(BaseModel):
+    candidate_id: str = Field(min_length=1, max_length=64)
 
 
 def create_app(data_path=None):
@@ -82,6 +98,59 @@ def create_app(data_path=None):
     @app.exception_handler(KeyStoreError)
     async def key_storage_error(request, exc):
         return JSONResponse({"detail": str(exc)}, status_code=422)
+
+    @app.exception_handler(TravelError)
+    async def travel_error(request, exc):
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+
+    @app.get('/api/travel')
+    def travel_state():
+        return service.travel.state
+
+    @app.put('/api/travel/settings')
+    def travel_settings(body: TravelConfigBody):
+        return service.travel.configure(body.mode, body.api_key.get_secret_value() if body.api_key is not None else None)
+
+    @app.put('/api/travel/authorization')
+    def travel_authorization(body: WeChatAuthorizationBody):
+        return service.travel.authorize(body.authorized)
+
+    @app.post('/api/travel/origin/search')
+    def travel_origin_search(body: TravelAddressBody):
+        return service.travel.search_origin(body.address.strip(), body.city.strip())
+
+    @app.put('/api/travel/origin')
+    def travel_origin(body: TravelChoiceBody):
+        return service.travel.confirm_origin(body.candidate_id)
+
+    @app.delete('/api/travel/origin')
+    def travel_clear_origin():
+        return service.travel.clear_origin()
+
+    def travel_order(oid):
+        order = next((row for row in service.orders(favorites=True)['orders']
+                      if row['id'] == oid and not row['synthetic']), None)
+        if order is None:
+            raise HTTPException(404, '只支持计算已收藏的订单，请先收藏或重新选择')
+        return order
+
+    @app.post('/api/travel/orders/{oid}/destinations')
+    def travel_destinations(oid: str):
+        order = travel_order(oid)
+        result = service.travel.search_destination(order)
+        current = travel_order(oid)
+        if service.travel.destination_context(current) != service.travel.destination_context(order):
+            raise TravelError('收藏中的地点已变化，请重新核对')
+        return result
+
+    @app.post('/api/travel/orders/{oid}/route')
+    def travel_route(oid: str, body: TravelChoiceBody):
+        order = travel_order(oid)
+        result = service.travel.calculate(order, body.candidate_id)
+        current = travel_order(oid)
+        if service.travel.destination_context(current) != service.travel.destination_context(order):
+            raise TravelError('收藏中的地点已变化，已忽略旧路线')
+        return result
 
     @app.get("/api/state")
     def state():
@@ -138,6 +207,8 @@ def create_app(data_path=None):
 
     @app.put("/api/model")
     def model(body: ModelBody):
+        if body.ai_enabled:
+            raise ModelError('AI调用已停用；请使用本地筛选与高德通勤计算')
         from urllib.parse import urlparse
         cfg = body.model_dump(exclude={"api_key","ai_enabled"})
         base = urlparse(cfg["base_url"])
@@ -158,8 +229,7 @@ def create_app(data_path=None):
 
     @app.post("/api/model/test")
     def test_model():
-        service.extractor().request('Return only JSON: {"ok":true}', "test")
-        return {"ok": True}
+        raise ModelError('AI调用已暂停，当前使用本地筛选与高德通勤计算')
 
     @app.post("/api/process")
     def process(body: ProcessBody | None = None):
