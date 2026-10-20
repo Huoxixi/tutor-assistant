@@ -9,7 +9,7 @@ from .subjects import recognize as recognize_subjects
 from .text_rules import NUMBER, Source, number
 from .templates import GROUPS as LABEL_GROUPS, LABEL_KIND, headers
 
-PARSER_VERSION = "local-v7"
+PARSER_VERSION = "local-v9"
 PREFER = re.compile(r"优先|最好|优选|更希望|尽量|倾向")
 RANGE = rf"(?P<lo>{NUMBER})(?:\s*[-~～—–至到]\s*(?P<hi>{NUMBER}))?"
 GRADE_RE = re.compile(r"(?:小学)?([一二三四五六七八九1-9])年级|小([一二三四五六1-6])|(?<![提拔])([初高])(?:中)?([一二三123])|([初高])中|幼儿园|学前班")
@@ -53,10 +53,19 @@ def segments(source):
 class LocalExtractor:
     def extract(self, message):
         blocks = split_orders(message["text"])
-        if len(blocks) > 100:
-            from .extraction import ModelError
-            raise ModelError("单条消息订单过多，已保存，需分批重试")
-        return [draft for block in blocks if (draft := self.parse(block)) is not None]
+        drafts=[]
+        for index,block in enumerate(blocks):
+            try:
+                draft=self.parse(block) if index<100 else Draft(reference=block.reference,source_text=block.text,
+                    validation_issues=['这条消息超过100单，此单尚未自动识别，请核对原消息'])
+            except Exception:
+                # One incompatible order must not discard its neighboring
+                # orders. Keep its source, without inventing any parsed facts.
+                draft=Draft(reference=block.reference,source_text=block.text,
+                            validation_issues=['此单识别未完成，请核对原消息'])
+            if draft is not None:
+                drafts.append(draft)
+        return drafts
 
     def parse(self, block):
         from .extraction import validate_model_order

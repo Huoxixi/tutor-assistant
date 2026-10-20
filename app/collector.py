@@ -61,7 +61,7 @@ def describe_read_error(exc, phase="read"):
     known = {
         "NotStartError": ("wechat_not_running", "微信未启动，请启动并登录后重试"),
         "NotLoginError": ("wechat_not_logged_in", "微信尚未登录，请登录后重试"),
-        "NotFoundError": ("wechat_ui_unavailable", "微信聊天控件不可访问，当前读取方式不兼容此客户端或账号；未读取到群消息"),
+        "NotFoundError": ("wechat_ui_unavailable", "微信主窗口的无障碍控件不可访问。自动兼容性初始化后仍未能访问界面，请确认微信已登录并检查本机兼容性诊断"),
         "NoSuchFriendError": ("group_not_found", "未找到该群，请核对微信中的完整群名"),
         "NotFriendError": ("chat_unavailable", "该聊天记录不可访问，请检查群是否仍在当前账号中"),
         "NetWorkError": ("wechat_offline", "微信当前离线，请恢复连接后重试"),
@@ -89,6 +89,10 @@ def read_child(group, count, output, options=None, stop=None):
             import pythoncom
             pythoncom.CoInitialize()
             com = pythoncom
+            from .accessibility import ensure_accessibility
+            diag.event("initialize_accessibility")
+            ensure_accessibility(stopped=stop.is_set if stop is not None else lambda: False)
+            diag.event("accessibility_ready")
             if count == 0:
                 from pyweixin import Contacts
                 phase = "read"
@@ -144,8 +148,15 @@ class Collector:
         process.start()
         started = activity = time.monotonic()
         phases_seen, most_rows = set(), -1
+        cancel_deadline=None
         try:
-            while not cancel.is_set() and time.monotonic() - activity < self.page_timeout and time.monotonic() - started < self.total_timeout:
+            while time.monotonic() - activity < self.page_timeout and time.monotonic() - started < self.total_timeout:
+                if cancel.is_set():
+                    stop.set()
+                    if cancel_deadline is None:
+                        cancel_deadline=time.monotonic()+2
+                    if time.monotonic()>=cancel_deadline:
+                        break
                 try:
                     result = output.get(timeout=0.2)
                     if "error" in result:
@@ -162,6 +173,8 @@ class Collector:
                     phases_seen.add(phase)
                     yield result
                     if result.get("event") not in {"progress", "batch"}:
+                        if cancel.is_set():
+                            break
                         return
                 except queue.Empty:
                     if not process.is_alive():

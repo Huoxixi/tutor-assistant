@@ -7,7 +7,8 @@ const stateNames={complete:'读取范围已覆盖',incomplete:'采集不完整',
 const readStateName=report=>['complete','incomplete'].includes(report.state)&&(report.count>0||report.groups?.some(g=>g.count>0))?'已读取':(stateNames[report.state]||report.state);
 const messageNames={received:'等待解析',error:'解析失败',unparsed:'此类型未解析',processed:'已解析',ignored:'普通聊天'};
 let state={},view='orders',bucket='matched',data=[],favoriteData=[],selected=null,timer=null;
-let stopping=false,taskStarting=false,taskKind=null,authorizationSaving=false;
+let stopping=false,taskStarting=false,taskKind=null,authorizationSaving=false,ordersRequest=0,favoritesRequest=0,stateRequest=0;
+const favoriteSaving=new Set();
 let regions=[],regionIndex={},selectedRegions=[],selectedGroups=new Set(),groupCatalog=[],lastCatalog='',groupSaving=false;
 const subjects=['全科','作业辅导','语文','数学','英语','物理','化学','生物','历史','地理','政治','科学'];
 const grades=['一年级','二年级','三年级','四年级','五年级','六年级','初一','初二','初三','高一','高二','高三'];
@@ -26,7 +27,12 @@ function pretty(value){
     if(value.length&&typeof value[0]==='object')return value.map(v=>v.day?('周'+'一二三四五六日'[v.day-1]+' '+v.start+'–'+v.end):[v.teacher_type,v.education,v.hourly_rate!=null?v.hourly_rate+'元/小时':''].filter(Boolean).join(' ')).join('；');
     return value.join('、');
   }
-  if(value&&typeof value==='object')return value.min!=null?value.min+'–'+value.max:JSON.stringify(value);
+  if(value&&typeof value==='object'){
+    if(value.min!=null&&value.max!=null)return value.min===value.max?String(value.min):value.min+'–'+value.max;
+    if(value.min!=null)return '≥'+value.min;
+    if(value.max!=null)return '≤'+value.max;
+    return JSON.stringify(value);
+  }
   if(typeof value==='boolean')return value?'是':'否';
   return String(value??'未说明');
 }
@@ -38,10 +44,17 @@ function notify(text,error=false){
   clearTimeout(timer);if(!error)timer=setTimeout(()=>{el.hidden=true},3200);
 }
 async function api(path,method='GET',body){
-  const response=await fetch(path,{method,headers:{'Content-Type':'application/json','X-Tutor-Client':'local-ui'},...(body===undefined?{}:{body:JSON.stringify(body)})});
-  const result=await response.json();
-  if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'填写内容格式不正确，请检查后重试');
-  return result;
+  const controller=new AbortController(),deadline=setTimeout(()=>controller.abort(),30000);
+  try{
+    const response=await fetch(path,{method,signal:controller.signal,headers:{'Content-Type':'application/json','X-Tutor-Client':'local-ui'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    let result;try{result=await response.json()}catch{throw new Error('本地程序响应异常，请重试或重新打开启动窗口')}
+    if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:response.status>=500?'本地程序暂时未能完成操作，请稍后重试':'填写内容格式不正确，请检查后重试');
+    return result;
+  }catch(error){
+    if(controller.signal.aborted)throw new Error('请求等待超时，任务可能仍在运行，请查看任务状态后重试');
+    if(error instanceof TypeError)throw new Error('无法连接本地程序，请确认启动窗口仍然打开');
+    throw error;
+  }finally{clearTimeout(deadline)}
 }
 async function action(fn,button){
   if(button)button.disabled=true;
@@ -74,7 +87,7 @@ function renderProgress(){
   }
   $('#orders-content').setAttribute('aria-busy',String(Boolean(filtering)));
   const counts=savedCounts();
-  $('#workflow-hint').hidden=active||Boolean(state.groups?.length&&Object.values(counts).some(Boolean)&&!(counts.received||counts.error));
+  $('#workflow-hint').hidden=active||['extracted','extraction_partial','extraction_cancelled'].includes(p.state)||Boolean(state.groups?.length&&Object.values(counts).some(Boolean)&&!(counts.received||counts.error||state.parser?.pending_reparse));
   $('#cancel').hidden=!state.busy;$('#cancel').disabled=stopping;
   $('#processing').hidden=!active&&p.state==='idle';
   $('#processing').classList.toggle('active',active);
@@ -94,14 +107,19 @@ function syncTaskControls(){
   $('#scan').disabled=busy||!authorized;$('#scan-selected').disabled=busy||!authorized||groupSaving||!selectedGroups.size;
   $('#filter').disabled=busy||!saved;$('#filter-selected').disabled=busy||groupSaving||!selectedGroups.size||!saved;
   $('#retry-process').disabled=busy;
-  const pending=(savedCounts().received||0)+(savedCounts().error||0);
-  $('#workflow-hint').textContent=!state.groups?.length?'请先在“微信群”选择来源。':!saved?'尚无消息，请先提取。':pending?pending+' 条待筛选，点击“开始筛选”。':'已保存 '+saved+' 条信息';
+  $('#preferences-form button[type="submit"]').disabled=busy;
+  $$('[data-favorite]').forEach(button=>button.disabled=busy||favoriteSaving.has(button.dataset.favorite));
+  const stale=state.parser?.pending_reparse||0;
+  const pending=(savedCounts().received||0)+(savedCounts().error||0)+stale;
+  $('#workflow-hint').textContent=!state.groups?.length?'请先在“微信群”选择来源。':!saved?'尚无消息，请先提取。':stale?'识别规则已更新，点击“开始筛选”重新识别 '+stale+' 条旧消息（先自动备份）':pending?pending+' 条待筛选，点击“开始筛选”。':'已保存 '+saved+' 条信息';
   $('#workflow-hint').classList.toggle('inline-alert',!state.groups?.length||!saved||Boolean(pending));
   $('#workflow-hint').hidden=Boolean(state.groups?.length&&saved&&!pending);
   renderWeChatAuthorization();renderProgress();
 }
 async function refreshState(){
-  state=await api('/api/state');
+  const request=++stateRequest,next=await api('/api/state');
+  if(request!==stateRequest)return;
+  state=next;
   $('#scan').textContent='开始提取信息';
   $('#scan-selected').textContent='开始提取信息';
   $('#scan').disabled=state.busy;
@@ -126,7 +144,7 @@ async function checkConnection(){
   if(state.wechat_authorization?.authorized!==true){renderWeChatAuthorization();return}
   const result=await api('/api/connection');
   if(state.wechat_authorization?.authorized!==true)return;
-  $('#connection').textContent=result.adapter_installed?(result.wechat_running?'微信已启动':'请登录电脑版微信'):'微信读取组件未安装';
+  $('#connection').textContent=result.adapter_installed?(result.wechat_running?'微信进程已启动，读取能力需提取时确认':'请登录电脑版微信'):'微信读取组件未安装';
   $('#connection').classList.toggle('attention-text',!result.adapter_installed||!result.wechat_running);
 }
 async function setWeChatAuthorization(authorized){
@@ -233,15 +251,18 @@ function table(orders,favorites=false){
   return '<div class="order-list" aria-label="'+(favorites?'收藏订单':'订单列表')+'">'+orders.map(o=>{
     const match=o.match;
     const changed=match.bucket==='rejected';
-    const issues=changed?['当前条件已变化，请重新核对',...match.conflicts]:match.unknowns;
+    const badge=o.status==='closed'?'已出 / 已结束':o.expired?'已超过48小时':changed?'不符合当前条件':match.bucket==='matched'?'通过筛选':'待确认';
+    const issues=changed?[o.status==='closed'?'原消息标明此单已出或已结束':'当前条件已变化，请重新核对',...match.conflicts]:match.unknowns;
   const sources=new Set(o.sources.map(s=>s.group)).size;
     const locationNote=match.location_status==='unconfirmed'?'<span class="cell-sub attention-text">地区待核对 · 尚未通过</span>':'';
     const secondary=[fact(o,'weekly_sessions')!=null?pretty(fact(o,'weekly_sessions'))+'次/周':'',fact(o,'duration_hours')!=null?pretty(fact(o,'duration_hours'))+'小时/次':''].filter(Boolean).join(' · ');
-    return '<article class="order-item'+(selected===o.id?' selected':'')+'" data-order-row="'+esc(o.id)+'"><div class="order-meta"><span class="reference">'+esc(o.reference||'未提供单号')+'</span><span class="badge '+(match.bucket==='matched'?'':'pending')+'">'+(match.bucket==='matched'?'通过筛选':changed?'条件已变化':'待确认')+'</span><time>'+esc(formatTime(o.updated_at))+'</time></div><div class="order-title"><h2>'+esc(title(o))+'</h2><strong class="money">'+esc(price(o))+'</strong></div><dl class="order-facts"><div><dt>授课位置</dt><dd class="teaching-location">'+esc(teachingLocation(o))+locationNote+'</dd></div><div><dt>上课安排</dt><dd>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+(secondary?'<span class="cell-sub">'+esc(secondary)+'</span>':'')+'</dd></div><div><dt>教员要求</dt><dd>'+esc(requirements(o))+'</dd></div></dl>'+(fact(o,'focus_subjects')?'<p class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</p>':'')+(issues.length||o.expired?'<p class="order-issues">'+esc([o.expired?'已超过48小时，请确认是否仍可接单':'',...issues].filter(Boolean).join('；'))+'</p>':'')+(o.favorite_at?(window.TutorTravel?.summary(o.id)||''):'')+'<div class="order-bottom"><span class="cell-sub">'+esc([fact(o,'student_gender')?'学员'+fact(o,'student_gender'):'',fact(o,'students_count')?fact(o,'students_count')+'名学员':'',sources+'个来源群',o.possible_duplicates.length?'有疑似重复单':''].filter(Boolean).join(' · '))+'</span><div class="cell-actions"><button data-detail="'+esc(o.id)+'" data-favorites="'+favorites+'" aria-expanded="'+(selected===o.id)+'">详情</button>'+(favorites&&o.favorite_at?'<button data-travel-open="'+esc(o.id)+'" data-travel-favorites="true">计算通勤</button>':'')+'<button data-favorite="'+esc(o.id)+'" data-enabled="'+!o.favorite_at+'">'+(o.favorite_at?'取消收藏':'收藏')+'</button></div></div></article>';
+    return '<article class="order-item'+(selected===o.id?' selected':'')+'" data-order-row="'+esc(o.id)+'"><div class="order-meta"><span class="reference">'+esc(o.reference||'未提供单号')+'</span><span class="badge '+(match.bucket==='matched'&&!o.expired&&o.status!=='closed'?'':'pending')+'">'+esc(badge)+'</span><time>'+esc(formatTime(o.updated_at))+'</time></div><div class="order-title"><h2>'+esc(title(o))+'</h2><strong class="money">'+esc(price(o))+'</strong></div><dl class="order-facts"><div><dt>授课位置</dt><dd class="teaching-location">'+esc(teachingLocation(o))+locationNote+'</dd></div><div><dt>上课安排</dt><dd>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+(secondary?'<span class="cell-sub">'+esc(secondary)+'</span>':'')+'</dd></div><div><dt>教员要求</dt><dd>'+esc(requirements(o))+'</dd></div></dl>'+(fact(o,'focus_subjects')?'<p class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</p>':'')+(issues.length||o.expired?'<p class="order-issues">'+esc([o.expired?'已超过48小时，请确认是否仍可接单':'',...issues].filter(Boolean).join('；'))+'</p>':'')+(o.favorite_at?(window.TutorTravel?.summary(o.id)||''):'')+'<div class="order-bottom"><span class="cell-sub">'+esc([fact(o,'student_gender')?'学员'+fact(o,'student_gender'):'',fact(o,'students_count')?fact(o,'students_count')+'名学员':'',sources+'个来源群',o.possible_duplicates.length?'有疑似重复单':''].filter(Boolean).join(' · '))+'</span><div class="cell-actions"><button data-detail="'+esc(o.id)+'" data-favorites="'+favorites+'" aria-expanded="'+(selected===o.id)+'">详情</button>'+(favorites&&o.favorite_at?'<button data-travel-open="'+esc(o.id)+'" data-travel-favorites="true">计算通勤</button>':'')+'<button data-favorite="'+esc(o.id)+'" data-enabled="'+!o.favorite_at+'"'+(state.busy||taskStarting?' disabled':'')+'>'+(o.favorite_at?'取消收藏':'收藏')+'</button></div></div></article>';
   }).join('')+'</div>';
 }
 async function loadOrders(){
+  const request=++ordersRequest,scope=JSON.stringify(state.groups||[]);
   const result=await api('/api/orders');
+  if(request!==ordersRequest||scope!==JSON.stringify(state.groups||[]))return;
   data=result.orders.filter(o=>o.match.bucket!=='rejected');
   for(const name of ['matched','pending'])$('#count-'+name).textContent=data.filter(o=>o.match.bucket===name).length;
   const current=data.filter(o=>o.match.bucket===bucket);
@@ -250,13 +271,16 @@ async function loadOrders(){
   const noMessages=reports.length&&reports.every(g=>!(g.count||0))&&reports.some(g=>g.state==='incomplete');
   let description='先提取微信消息，再筛选已保存的信息。';
   if((counts.received||0)+(counts.error||0)>0)description='已有消息等待筛选，请点击上方“开始筛选”，无需重新提取。';
+  else if(bucket==='matched'&&data.some(o=>o.match.bucket==='pending'))description='还有 '+data.filter(o=>o.match.bucket==='pending').length+' 单待确认，可切换到“待确认”核对原文。';
   else if(Object.values(counts).some(Boolean))description='可调整筛选条件。';
   $('#orders-content').innerHTML=current.length?table(current):noMessages&&!data.length?empty('尚未读取到群消息',reports.find(g=>g.state==='incomplete')?.detail||'群消息读取失败，请查看读取状态。','<button data-open-scan="true">查看读取状态</button>'):empty(bucket==='matched'?'暂时没有通过筛选的单子':'暂时没有待确认的单子',description,'<button data-view="preferences">设置接单需求</button><button data-view="groups">选择微信群</button>');
   const detail=$('#order-detail');
   if(selected&&current.some(o=>o.id===selected))renderDetail(selected,false,false);else{selected=null;detail.hidden=true}
 }
 async function loadFavorites(){
+  const request=++favoritesRequest;
   const result=await api('/api/orders?favorites=true');
+  if(request!==favoritesRequest)return;
   favoriteData=result.orders;
   $('#favorites-content').innerHTML=favoriteData.length?table(favoriteData,true):empty('还没有收藏','在订单清单中收藏后，可在这里长期查看。');
   if(selected&&favoriteData.some(o=>o.id===selected))renderDetail(selected,true,false);else $('#favorite-detail').hidden=true;
@@ -268,7 +292,7 @@ function renderDetail(id,favorites=false,scroll=true){
   const target=$(favorites?'#favorite-detail':'#order-detail');
   const match=order.match;
   const notices=[...new Set([...match.unknowns,...match.conflicts])];
-  if(match.bucket==='rejected')notices.unshift('条件已变，请重新核对');
+  if(match.bucket==='rejected')notices.unshift(order.status==='closed'?'原消息标明此单已出或已结束':'条件已变，请重新核对');
   if(order.expired)notices.push('订单已超过48小时，请确认是否仍可接单');
   const caution=notices.length?'<div class="inline-alert order-caution"><strong>接单前请核对</strong><ul>'+notices.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul></div>':'';
   target.hidden=false;
@@ -366,6 +390,8 @@ async function changeGroups(method,body){
   try{
     const result=await api('/api/groups',method,body);
     state.groups=result.groups;state.group_catalog=result.group_catalog;
+    ordersRequest++;
+    await refreshState();await loadOrders();
   }finally{groupSaving=false;syncGroups();fillGroups()}
 }
 document.addEventListener('click',event=>{
@@ -375,7 +401,11 @@ document.addEventListener('click',event=>{
   if(button.dataset.bucket){bucket=button.dataset.bucket;selected=null;syncTabs();return action(loadOrders)}
   if(button.dataset.detail)return renderDetail(button.dataset.detail,button.dataset.favorites==='true');
   if(button.dataset.closeDetail){$(button.dataset.closeDetail==='favorite'?'#favorite-detail':'#order-detail').hidden=true;const opener=$$('.view:not([hidden]) [data-detail]').find(el=>el.dataset.detail===selected);opener?.focus({preventScroll:true});$$('[data-order-row]').forEach(el=>el.classList.remove('selected'));$$('[data-detail]').forEach(el=>el.setAttribute('aria-expanded','false'));selected=null;return}
-  if(button.dataset.favorite)return action(async()=>{await api('/api/orders/'+button.dataset.favorite+'/favorite','PUT',{enabled:button.dataset.enabled==='true'});await(view==='favorites'?loadFavorites():loadOrders())},button);
+  if(button.dataset.favorite){
+    const id=button.dataset.favorite;if(favoriteSaving.has(id))return;
+    favoriteSaving.add(id);
+    return action(async()=>{try{await api('/api/orders/'+id+'/favorite','PUT',{enabled:button.dataset.enabled==='true'});await(view==='favorites'?loadFavorites():loadOrders())}finally{favoriteSaving.delete(id)}},button);
+  }
   if(button.dataset.removeRegion){selectedRegions=selectedRegions.filter(code=>code!==button.dataset.removeRegion);renderSelectedRegions();return}
   if(button.dataset.retryGroup)return action(()=>startScan([button.dataset.retryGroup]),button);
   if(button.dataset.removeGroup)return action(()=>changeGroups('DELETE',{name:button.dataset.removeGroup}),button);
@@ -394,6 +424,7 @@ $('#add-region').addEventListener('click',()=>{
   if(!selectedRegions.includes(code))selectedRegions.push(code);renderSelectedRegions();
 });
 $('#preferences-form').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
+  if(state.busy||taskStarting)throw new Error('任务进行中，请完成或停止后再保存接单条件');
   const profile={},rules=[];
   const gender=$('[name=teacher_gender]').value,tier=$('[name=school_tier]').value;
   if(gender)profile.teacher_gender=gender;
@@ -413,7 +444,9 @@ $('#preferences-form').addEventListener('submit',event=>{event.preventDefault();
     rules.push({field:'grade',value:grades.slice(lower,upper+1),mode:'must'});
   }
   if(selectedRegions.length)rules.push({field:'location',value:selectedRegions,mode:'must'});
-  await api('/api/preferences','PUT',{profile,rules});await refreshState();await go('orders');notify('已保存并重新筛选');
+  await api('/api/preferences','PUT',{profile,rules});await refreshState();
+  if(state.groups?.length&&Object.values(savedCounts()).some(Boolean)){await startFilter();notify('接单条件已保存，正在筛选已保存的信息')}
+  else{await go('orders');notify('接单条件已保存，请选择群聊并提取消息后筛选')}
 },event.submitter)});
 $('#group-choice').addEventListener('change',event=>{
   if(event.target.name!=='selected-group')return;
@@ -459,9 +492,12 @@ async function boot(){
     await refreshState();selectedGroups=new Set(state.groups||[]);await checkConnection();fillGroups();
     await go(['#travel','#model'].includes(location.hash)?'travel':'orders');
   }catch(error){notify('连接失败：'+error.message,true)}
+  let polling=false;
   setInterval(async()=>{
-    try{const wasBusy=state.busy;await refreshState();if((wasBusy||state.busy)&&view==='orders')await loadOrders()}
-    catch(error){notify('连接中断，请刷新页面',true)}
+    if(polling)return;polling=true;
+    try{const wasBusy=state.busy;await refreshState();if(wasBusy||state.busy){if(view==='orders')await loadOrders();if(view==='favorites')await loadFavorites()}}
+    catch(error){notify(error.message||'连接中断，请确认本地程序仍在运行',true)}
+    finally{polling=false}
   },3000);
 }
 boot();

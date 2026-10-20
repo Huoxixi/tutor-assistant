@@ -56,6 +56,25 @@ def test_filter_endpoint_reuses_saved_information_even_without_wechat(setup,monk
     assert len(store.messages())==1 and not store.scans()
 
 
+def test_one_saved_message_produces_separate_orders_by_reference(setup,monkeypatch):
+    client,service,store=setup
+    raw='7101001【学员】初二【科目】英语【课酬】150/h；7101002【学员】三年级【科目】数学【课酬】120/h；7101003【学员】初三【科目】物理【课酬】180/h'
+    mid=store.add_message(Message(group='合成群',text=raw,sent_at=now()))
+    service.collector=SimpleNamespace(collect=lambda *a,**k:pytest.fail('Filter reread WeChat'))
+    assert client.post('/api/process',json={}).status_code==200
+    orders={row['reference']:row for row in client.get('/api/orders').json()['orders']}
+    assert set(orders)=={'7101001','7101002','7101003'}
+    for reference,subject,rate in [('7101001','英语',150),('7101002','数学',120),('7101003','物理',180)]:
+        order=orders[reference]
+        assert order['facts']['subject']['value']==[subject]
+        assert order['facts']['hourly_rate']['value']==rate
+        assert order['sources'][0]['id']==mid
+        assert order['sources'][0]['text'] in raw
+        assert all(other not in order['sources'][0]['text'] for other in orders if other!=reference)
+    assert len(store.messages())==1
+    assert store.messages()[0]['payload']['text']==raw
+
+
 def test_stopped_extraction_can_be_filtered_without_rereading(setup,monkeypatch):
     client,service,store=setup
     service.set_wechat_authorization(True)
@@ -90,3 +109,21 @@ def test_filter_only_processes_saved_messages_from_selected_groups(setup):
     service.collector=SimpleNamespace(collect=lambda *a,**kw:pytest.fail('Filter read WeChat'))
     assert client.post('/api/process',json={}).status_code==200
     assert {m['payload']['group']:m['state'] for m in store.messages()}=={'合成群':'processed','其他群':'received'}
+
+
+@pytest.mark.parametrize('read_state,count', [('incomplete',0),('cancelled',0),('complete',0),('incomplete',1)])
+def test_scan_guidance_only_offers_filter_when_this_read_saved_messages(setup, read_state, count):
+    client,service,store=setup
+    service.set_wechat_authorization(True)
+    def collect(group,start,end,cancel,on_batch,**kwargs):
+        if count:
+            on_batch([Message(group=group,text='【科目】初二英语【课酬】120/h',sent_at=end)])
+        if read_state=='cancelled': cancel.set()
+        return {'group':group,'state':read_state,'count':count,'detail':'合成读取结果'}
+    service.collector=SimpleNamespace(collect=collect)
+    service.start_scan(['合成群'])
+    progress=client.get('/api/state').json()['processing']
+    assert progress['processed']==count
+    assert ('开始筛选' in progress['detail']) is bool(count)
+    if not count:
+        assert '未读取到消息' in progress['detail']

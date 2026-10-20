@@ -10,6 +10,7 @@ from app import history_reader, read_diagnostics
 
 @pytest.fixture(autouse=True)
 def isolated_diagnostics(monkeypatch, tmp_path):
+    monkeypatch.setattr('app.accessibility.ensure_accessibility', lambda **kwargs: {"state": "already_accessible"})
     original = read_diagnostics.ReadDiagnostics
     monkeypatch.setattr(read_diagnostics, "ReadDiagnostics", lambda *args, **kwargs: original(tmp_path / "read.json", notify=kwargs.get("notify")))
 
@@ -31,6 +32,14 @@ def test_safe_actionable_read_failures(name, code):
 
 def test_initialization_failure_is_distinct():
     assert describe_read_error(TypeError("private"), "initialize")["error_code"] == "adapter_initialization_failed"
+
+
+def test_unavailable_accessibility_has_specific_recovery_without_echoing_sdk_text():
+    exc = type('NotFoundError', (Exception,), {})('private chat / account / secret')
+    result = describe_read_error(exc)
+    assert result['error_code'] == 'wechat_ui_unavailable'
+    assert '兼容性' in result['error'] and '讲述人' not in result['error']
+    assert 'private' not in result['error'] and 'secret' not in result['error']
 
 
 def test_live_child_protocol_reports_uia_failure_and_releases_com(monkeypatch):

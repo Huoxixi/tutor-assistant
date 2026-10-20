@@ -150,13 +150,31 @@ def self_test(directory):
         result['zero_map_requests'] = local_json(url + '/api/travel')['requests_current_run'] == 0
         result['empty_orders'] = local_json(url + '/api/orders')['orders'] == []
         result['regions'] = len(local_json(url + '/api/regions')['provinces']) == 34
+        from .local_extraction import LocalExtractor
+        samples = LocalExtractor().extract({'text': '7101001【学员】初二【科目】英语【课酬】150/h；7101002【学员】三年级【科目】数学【课酬】120/h'})
+        result['reference_splitting'] = (
+            [d.reference for d in samples] == ['7101001', '7101002']
+            and [d.facts['subject'].value for d in samples] == [['英语'], ['数学']]
+            and [d.facts['hourly_rate'].value for d in samples] == [150, 120])
+        from .models import Draft,Message,now
+        legacy_text='7101001【学员】初二【科目】英语【课酬】150/h；7101002【学员】三年级【科目】数学【课酬】120/h'
+        store=app.state.store
+        store.update_groups(add='打包自检合成群')
+        mid=store.add_message(Message(group='打包自检合成群',text=legacy_text,sent_at=now()))
+        store.save_drafts(mid,[Draft(reference='7101001',source_text=legacy_text)])
+        store.favorite(store.orders()[0][0]['id'],True)
+        app.state.service.run_process()
+        rebuilt=store.orders()[0]
+        result['upgrade_reparse']=(len(rebuilt)==2 and {o['reference'] for o in rebuilt}=={'7101001','7101002'}
+            and [o['reference'] for o in rebuilt if o['favorite_at']]==['7101001']
+            and local_json(url+'/api/state')['parser']['pending_reparse']==0)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         for route in ('/', '/static/app.css', '/static/app.js', '/static/travel.js', '/guide'):
             with opener.open(url + route) as response:
                 assert response.status == 200 and len(response.read()) > 100
         result['resources'] = True
         result['ok'] = all(result[k] for k in ('health','no_ai','no_wechat_authorization',
-            'no_map_authorization','zero_map_requests','empty_orders','regions','resources'))
+            'no_map_authorization','zero_map_requests','empty_orders','regions','resources','reference_splitting','upgrade_reparse'))
     except BaseException as exc:
         result.update(ok=False, error_type=type(exc).__name__, detail=str(exc)[:500])
     finally:
@@ -165,13 +183,43 @@ def self_test(directory):
     return 0 if result.get('ok') else 1
 
 
+def wechat_read_test(directory, group, count=5):
+    """Explicit live acceptance through the production worker; save counts only."""
+    from .collector import Collector, describe_read_error
+    if not group.strip() or not 1 <= count <= 20:
+        raise ValueError('A group and a read count from 1 to 20 are required')
+    directory = Path(directory).resolve()
+    directory.mkdir(parents=True, exist_ok=False)
+    os.environ['TUTOR_DB'] = str(directory / 'unused.sqlite3')
+    result = {'version': VERSION, 'synthetic': False, 'requested_rows': count,
+              'chat_contents_saved': False, 'coverage_verified': False}
+    try:
+        rows = Collector(page_timeout=60, total_timeout=120).page(group, count, threading.Event())
+        result.update(rows=len(rows), ok=bool(rows),
+                      text_rows=sum(row.get('消息类型') in {'文本', 'text'} for row in rows))
+        del rows
+    except Exception as exc:
+        result.update(ok=False, **describe_read_error(exc))
+    finally:
+        (directory / 'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    return 0 if result.get('ok') else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='家教拾单 Windows 启动器')
-    parser.add_argument('--self-test', metavar='NEW_DIRECTORY')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--self-test', metavar='NEW_DIRECTORY')
+    mode.add_argument('--wechat-read-test', metavar='NEW_DIRECTORY', help='明确授权一次真实微信读取验收，仅保存条数')
+    parser.add_argument('--group', help='真实读取验收的完整群名')
+    parser.add_argument('--read-count', type=int, choices=range(1, 21), default=5)
     parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器（诊断用）')
     args = parser.parse_args()
     if args.self_test:
         raise SystemExit(self_test(args.self_test))
+    if args.wechat_read_test:
+        if not args.group:
+            parser.error('--wechat-read-test requires --group')
+        raise SystemExit(wechat_read_test(args.wechat_read_test, args.group, args.read_count))
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk(); root.withdraw()

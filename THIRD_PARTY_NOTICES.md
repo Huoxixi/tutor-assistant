@@ -35,6 +35,10 @@
 
 运行包还包括微信组件导入所需的 NumPy、Pillow、sounddevice、soundfile 及传递依赖。未使用的 ASIO 驱动不分发。soundfile 所载 libsndfile 1.2.2 DLL 保持独立、可替换；包内及 Release 附件另有其上游 1.2.2 源码归档和校验和，按 LGPL2.1 分别保留许可。Tcl/Tk 运行时、PyInstaller bootloader 许可及其他依赖通知保留在包内对应目录和 `third_party_licenses/`。
 
+## 微信界面访问兼容性初始化
+
+`app/accessibility.py` 中的运行时标志定位方法参考 [fanyuantaier/wechatauto-replica](https://github.com/fanyuantaier/wechatauto-replica) 的 accessibility 实现（Apache-2.0）。本项目改写为仅接受已验证微信版本、文件 SHA-256、代码模式和单字节标志，加入读取前检查、取消和失败回滚；未集成上游其他功能。上游许可原文保留在 `packaging/licenses/wechatauto-replica-APACHE-2.0.txt`，运行包另附于 `third_party_licenses/`。
+
 ## 内置地区数据：Vant Area Data
 
 - 来源：[youzan/vant · packages/vant-area-data](https://github.com/youzan/vant/tree/main/packages/vant-area-data)。

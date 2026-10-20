@@ -1,4 +1,4 @@
-家教拾单 Windows 运行包 v0.2.0
+家教拾单 Windows 运行包 v0.2.3
 
 1. 将 ZIP 完整解压到自己的文件夹，不要只从压缩包内打开 EXE。
 2. 双击 TutorAssistant.exe，浏览器会自动打开本地页面。

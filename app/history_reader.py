@@ -15,6 +15,8 @@ from statistics import median
 
 PHASE_DETAILS = {
     "initialize": "正在初始化读取组件",
+    "initialize_accessibility": "正在检查并初始化微信界面访问",
+    "accessibility_ready": "微信界面访问已就绪",
     "open_chat": "正在打开目标群",
     "open_history": "正在打开聊天记录",
     "locate_history": "正在定位聊天记录窗口",

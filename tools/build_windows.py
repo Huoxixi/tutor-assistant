@@ -15,6 +15,32 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.runtime import VERSION
 
+PUBLIC_DOCS = (
+    'amap-setup.md', 'commute-workflow.md', 'windows-release.md',
+    'user-journey-audit-20261020.md', 'images/authorization-preview.png',
+)
+
+
+def package_docs(bundle):
+    """Ship only public help, removing stale internal reports on rebuilds."""
+    sources = [(ROOT / 'docs' / name, name) for name in PUBLIC_DOCS]
+    for source, _ in sources:
+        if not source.is_file():
+            raise FileNotFoundError('Public release documentation missing: ' + source.name)
+    target = (bundle / 'docs').resolve()
+    if target.parent != bundle.resolve():
+        raise RuntimeError('Documentation directory must stay inside the release bundle')
+    if target.exists():
+        for previous in target.rglob('*'):
+            if previous.is_file() and previous.relative_to(target).as_posix() not in PUBLIC_DOCS:
+                if not previous.resolve().is_relative_to(target):
+                    raise RuntimeError('Unexpected link in release documentation')
+                previous.unlink()
+    for source, name in sources:
+        destination = target / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+
 
 def download(url, destination, expected=None):
     if expected and destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest() == expected:
@@ -31,6 +57,8 @@ def download(url, destination, expected=None):
 def license_bundle(bundle):
     target = bundle / 'third_party_licenses'
     target.mkdir(exist_ok=True)
+    shutil.copyfile(ROOT / 'packaging/licenses/wechatauto-replica-APACHE-2.0.txt',
+                    target / 'wechatauto-replica-APACHE-2.0.txt')
     inventory = []
     for dist in metadata.distributions():
         name = dist.metadata['Name']
@@ -97,7 +125,7 @@ def main():
     for name in ('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md'):
         shutil.copyfile(ROOT / name, bundle / name)
         shutil.copyfile(ROOT / name, bundle / '_internal' / name)
-    shutil.copytree(ROOT / 'docs', bundle / 'docs', dirs_exist_ok=True)
+    package_docs(bundle)
     shutil.copyfile(ROOT / 'packaging/START_HERE.txt', bundle / 'START_HERE.txt')
     sources = license_bundle(bundle)
     bad = [str(p.relative_to(bundle)) for p in bundle.rglob('*') if p.is_file() and

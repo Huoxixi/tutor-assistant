@@ -10,6 +10,10 @@ DISTRICT_PREFIXES={alias for node in REGION_INDEX.values() if node['level']==3 f
 TOKEN = r"(?:[A-Za-z\u4e00-\u9fff]{1,20}(?:[ \t]+[A-Za-z\u4e00-\u9fff]{1,12}){0,2}[ \t]*[-_]?[ \t]*\d{1,14}|\d{6,14})[A-Za-z]{0,4}(?:[-_]\d{1,4})?"
 PREFIX = r"(?:家教|订单)?(?:单号|编号)|订单号"
 HEADER = re.compile(r"(?m)^[ \t\u3000\"'“”‘’]*(?:(?:"+DECORATION+r"|[#*•·]|\[[^\]\n]{1,8}\])[ \t]*)*(?:[\u4e00-\u9fff]{2,8}线下[ \t]*#)?(?:(?:【|\[)?(?:" + PREFIX + r")[】\]]?\s*[:：]?\s*)?[【\[]?(?P<ref>" + TOKEN + r")[】\]]?(?:号家教)?[^\S\n\"']*[\"']?[:：]?[^\S\n]*")
+# A forward may concatenate numbered orders with semicolons instead of lines.
+# Keep the separator requirement so prices, phone numbers and prose do not
+# become order starts merely because they contain digits.
+ORDER_HEADER = re.compile(HEADER.pattern.replace(r"(?m)^", r"(?m)(?:^|(?<=[;；|]))"))
 EXPLICIT = re.compile(r"(?:【|\[)?(?:" + PREFIX + r")[】\]]?\s*[:：]?\s*[【\[]?(?P<ref>" + TOKEN + r")[】\]]?")
 STUDENT = re.compile(r"(?m)^[ \t]*(?:【(?:学员|学生|学生情况|学员情况|学生年级)】\s*:?|(?:学员|学生情况|学员情况|学生年级)\s*:)")
 ORDER_SIGNAL = re.compile(r"学员|科目|课酬|薪资|教员要求|[初高][一二三123]|[一二三四五六1-6]年级|\d\s*(?:元/|/h)", re.I)
@@ -70,19 +74,20 @@ def split_orders(text: str) -> list[Block]:
         result=[];start=0
         for i,(marker,token) in enumerate(references):
             token_end=marker.end()+token.end()
-            end=source.text.find('\n',token_end)
-            end=len(source.text) if end<0 or i==len(references)-1 else end+1
+            next_ref=references[i+1][0].start() if i+1<len(references) else len(source.text)
+            newline=source.text.find('\n',token_end,next_ref)
+            end=len(source.text) if i==len(references)-1 else (newline+1 if newline>=0 else token_end)
             result.append(Block(source.evidence(marker.end()+token.start('ref'),marker.end()+token.end('ref')),source.evidence(start,end).strip()))
             start=end
         return result
     headers = []
     header_ranges=[]
-    for m in HEADER.finditer(source.text):
+    for m in ORDER_HEADER.finditer(source.text):
         explicit = bool(re.search(PREFIX, m.group()))
         if not valid_reference(m['ref'], explicit):
             continue
         rest = source.text[m.end():].split('\n', 1)[0]
-        if rest and not re.match(r"【|\[|#|[，,;；(]|(?:学员|学生|科目|初[一二三]|高[一二三]|补充|已出|已接|已找到|回收)", rest):
+        if rest and not re.match(r"【|\[|#|[，,;；(]|(?:学员|学生|科目|[一二三四五六1-6]年级|小学|初中|高中|幼儿园|学前班|初[一二三123]|高[一二三123]|补充|已出|已接|已找到|回收)", rest):
             continue
         if rest and not explicit and rest[0].isalnum() and not ORDER_SIGNAL.search(rest):
             continue
@@ -117,12 +122,26 @@ def split_orders(text: str) -> list[Block]:
             if not any(start==line_start for start,_ in headers):
                 headers.append((line_start,source.evidence(marker.start('ref'),marker.end('ref'))))
     headers.sort(key=lambda header:header[0])
+    # Repeated mentions of the current reference do not create another order.
+    # NFKC is used only for comparison; identifiers and blocks retain raw text.
+    numbered=[]
+    for header in headers:
+        if not numbered or Source(numbered[-1][1]).text != Source(header[1]).text:
+            numbered.append(header)
+    headers=numbered
     result = []
     positions = headers or [(0, None)]
     if headers and headers[0][0] and len(ORDER_SIGNAL.findall(source.text[:headers[0][0]])) >= 2:
         positions = [(0, None), *positions]
+    numbered_message=len({Source(value).text for _,value in headers})>=2
     for i, (start, ref) in enumerate(positions):
         end = positions[i+1][0] if i+1 < len(positions) else len(source.text)
+        if ref is not None and numbered_message:
+            # In a numbered multi-order message, repeated student/course fields
+            # belong to this identifier until the next order header. Do not
+            # turn one numbered order into additional anonymous orders.
+            result.append(Block(ref,source.evidence(start,end).strip()))
+            continue
         starts=[(m,kind,label) for m,kind,label in fields if start<=m.start()<end and kind in {'student','student_subject'}]
         def address_start(marker,active_start):
             boundary=marker.start()

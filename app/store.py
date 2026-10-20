@@ -32,6 +32,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS order_blocks(order_id TEXT NOT NULL,message_id TEXT NOT NULL,text TEXT NOT NULL,PRIMARY KEY(order_id,message_id));
                 CREATE TABLE IF NOT EXISTS order_validation(order_id TEXT NOT NULL,message_id TEXT NOT NULL,issues TEXT NOT NULL,PRIMARY KEY(order_id,message_id));
                 CREATE TABLE IF NOT EXISTS location_verifications(key TEXT PRIMARY KEY,payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS message_parsers(message_id TEXT PRIMARY KEY,version TEXT NOT NULL);
             """)
             # An interrupted UI worker never claims a completed scan after restart.
             for row in db.execute("SELECT id,payload FROM scans").fetchall():
@@ -121,9 +122,28 @@ class Store:
         with self.db() as db:
             db.execute("UPDATE messages SET state=?,error=? WHERE id=?", (state, error, mid))
 
-    def save_drafts(self, mid, drafts):
+    def parser_versions(self):
+        with self.db() as db:
+            return dict(db.execute('SELECT message_id,version FROM message_parsers').fetchall())
+
+    def parser_backup(self):
+        target=Path(self.path).parent/'backups'/('before-parser-'+now().strftime('%Y%m%d-%H%M%S-%f')+'.sqlite3')
+        target.parent.mkdir(parents=True,exist_ok=True)
+        with self.db() as source, sqlite3.connect(target) as destination:
+            source.backup(destination)
+        return target
+
+    def save_drafts(self, mid, drafts, *, parser_version=None, replace=False):
         with self.db() as db:
             msg = json.loads(db.execute("SELECT payload FROM messages WHERE id=?", (mid,)).fetchone()[0])
+            old=[]
+            if replace:
+                old=db.execute('SELECT o.*,f.created_at favorite_at FROM orders o JOIN sources s ON s.order_id=o.id LEFT JOIN favorites f ON f.order_id=o.id WHERE s.message_id=?',(mid,)).fetchall()
+                db.execute('DELETE FROM sources WHERE message_id=?',(mid,))
+                db.execute('DELETE FROM order_blocks WHERE message_id=?',(mid,))
+                db.execute('DELETE FROM order_validation WHERE message_id=?',(mid,))
+                db.execute('DELETE FROM updates WHERE message_id=?',(mid,))
+            new_orders=[]
             for index, draft in enumerate(drafts):
                 data = draft.model_dump(mode="json")
                 if draft.kind == "update":
@@ -133,16 +153,47 @@ class Store:
                 # Similar facts alone are insufficient evidence of identity.
                 source_text = draft.source_text or msg["text"]
                 oid = digest([normalized(source_text), draft.reference or index, msg["synthetic"]])
+                new_orders.append((oid,draft.reference))
                 row = db.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
                 stamp = msg["sent_at"] or ""
                 if not row:
                     db.execute("INSERT INTO orders VALUES (?,?,?,?,?,?)", (oid, json.dumps(data["facts"], ensure_ascii=False), draft.reference, draft.status, stamp, int(msg["synthetic"])))
+                elif replace:
+                    db.execute('UPDATE orders SET facts=?,status=?,updated_at=? WHERE id=?',(json.dumps(data['facts'],ensure_ascii=False),draft.status,max(stamp,row['updated_at']),oid))
                 elif stamp > row["updated_at"]:
                     db.execute("UPDATE orders SET updated_at=? WHERE id=?", (stamp, oid))
                 db.execute("INSERT OR IGNORE INTO sources VALUES (?,?)", (oid, mid))
                 db.execute("INSERT OR REPLACE INTO order_blocks VALUES (?,?,?)", (oid, mid, source_text))
                 db.execute("INSERT OR REPLACE INTO order_validation VALUES (?,?,?)", (oid, mid, json.dumps(draft.validation_issues, ensure_ascii=False)))
+            if replace:
+                from .deduplication import reference_key
+                for previous in old:
+                    oid=previous['id']
+                    if any(oid==new_id for new_id,_ in new_orders):
+                        continue
+                    # Update-only sources must not keep an obsolete parse alive.
+                    for linked in db.execute('SELECT id,message_id FROM updates WHERE linked_order=?',(oid,)).fetchall():
+                        for table in ('sources','order_blocks','order_validation'):
+                            db.execute('DELETE FROM '+table+' WHERE order_id=? AND message_id=?',(oid,linked['message_id']))
+                        db.execute('UPDATE updates SET linked_order=NULL WHERE id=?',(linked['id'],))
+                    ref=reference_key(previous['reference'])
+                    successors=[new_id for new_id,new_ref in new_orders if ref and reference_key(new_ref)==ref]
+                    if previous['favorite_at'] and successors:
+                        db.execute('INSERT OR IGNORE INTO favorites VALUES (?,?)',(successors[0],previous['favorite_at']))
+                        db.execute('DELETE FROM favorites WHERE order_id=?',(oid,))
+                    if db.execute('SELECT 1 FROM sources WHERE order_id=?',(oid,)).fetchone():
+                        continue
+                    if previous['favorite_at'] and not successors:
+                        db.execute("UPDATE orders SET facts='{}' WHERE id=?",(oid,))
+                        db.execute('INSERT INTO sources VALUES (?,?)',(oid,mid))
+                        db.execute('INSERT INTO order_blocks VALUES (?,?,?)',(oid,mid,msg['text']))
+                        db.execute('INSERT INTO order_validation VALUES (?,?,?)',(oid,mid,json.dumps(['历史收藏重新识别后无法对应单号，请核对原消息'],ensure_ascii=False)))
+                    else:
+                        for table in ('favorites','order_blocks','order_validation','orders'):
+                            db.execute('DELETE FROM '+table+' WHERE '+('id' if table=='orders' else 'order_id')+'=?',(oid,))
             db.execute("UPDATE messages SET state=?,error=NULL WHERE id=?", ("processed" if drafts else "ignored", mid))
+            if parser_version is not None:
+                db.execute('INSERT OR REPLACE INTO message_parsers VALUES (?,?)',(mid,parser_version))
             self._apply_updates(db)
 
     def _apply_updates(self, db):

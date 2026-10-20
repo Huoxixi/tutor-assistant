@@ -156,13 +156,17 @@ def create_app(data_path=None):
     @app.get("/api/state")
     def state():
         counts,selected_counts = {},{}
+        versions=store.parser_versions()
+        reparse=0
         selected=set(store.group_state()['groups'])
         for message in store.messages():
             if not message["payload"]["synthetic"]:
                 counts[message["state"]] = counts.get(message["state"], 0) + 1
                 if message['payload']['group'] in selected:
                     selected_counts[message['state']]=selected_counts.get(message['state'],0)+1
-        return {"wechat_authorization": service.wechat_authorization, "preferences": store.preferences(), **store.group_state(), "parser": {"mode": "local", "version": PARSER_VERSION, "requires_model": False}, "model": {**store.get("model", {}), "key_configured": bool(service.key), "key_saved": service.key_store.saved, "key_load_error": service.key_load_error, "enabled": service.model_enabled, "ai_enabled":service.ai_enabled}, "scans": store.scans(), "processing": service.progress, "busy": service.lock.locked(), "counts": counts, "selected_counts":selected_counts, "labels": LABELS}
+                    if message['state'] in {'processed','ignored'} and message['payload']['kind']=='text' and versions.get(message['id'])!=PARSER_VERSION:
+                        reparse+=1
+        return {"wechat_authorization": service.wechat_authorization, "preferences": store.preferences(), **store.group_state(), "parser": {"mode": "local", "version": PARSER_VERSION, "requires_model": False, "pending_reparse": reparse}, "model": {**store.get("model", {}), "key_configured": bool(service.key), "key_saved": service.key_store.saved, "key_load_error": service.key_load_error, "enabled": service.model_enabled, "ai_enabled":service.ai_enabled}, "scans": store.scans(), "processing": service.progress, "busy": service.lock.locked(), "counts": counts, "selected_counts":selected_counts, "labels": LABELS}
 
     @app.get("/api/connection")
     def connection():
@@ -178,6 +182,8 @@ def create_app(data_path=None):
 
     @app.put("/api/preferences")
     def preferences(body: Preferences):
+        if service.lock.locked():
+            raise HTTPException(409,'任务进行中，请完成或停止后再修改接单条件')
         try:
             validate_preferences(body)
         except (ValueError, TypeError, KeyError, ModelError):
@@ -187,6 +193,8 @@ def create_app(data_path=None):
 
     @app.put("/api/groups")
     def groups(body: GroupSelection):
+        if service.lock.locked():
+            raise HTTPException(409,'任务进行中，请完成或停止后再修改群来源')
         names = list(dict.fromkeys(g.strip() for g in body.groups if g.strip()))
         if any(len(g) > 120 for g in names):
             raise HTTPException(422, "群名称不能超过120字")
@@ -197,6 +205,8 @@ def create_app(data_path=None):
 
     @app.post("/api/groups")
     def add_group(body: GroupName):
+        if service.lock.locked():
+            raise HTTPException(409,'任务进行中，请完成或停止后再修改群来源')
         name = body.name.strip()
         if not name:
             raise HTTPException(422, "请填写微信群名")
@@ -204,6 +214,8 @@ def create_app(data_path=None):
 
     @app.delete("/api/groups")
     def remove_group(body: GroupName):
+        if service.lock.locked():
+            raise HTTPException(409,'任务进行中，请完成或停止后再修改群来源')
         return store.update_groups(remove=body.name.strip())
 
     @app.put("/api/model")
@@ -234,6 +246,8 @@ def create_app(data_path=None):
 
     @app.post("/api/process")
     def process(body: ProcessBody | None = None):
+        if not store.group_state()['groups']:
+            raise HTTPException(422,'请先在微信群选择需要筛选的来源')
         if body is not None and body.limit is not None:
             service.launch(service.run_process, body.limit)
         else:
@@ -268,6 +282,8 @@ def create_app(data_path=None):
 
     @app.put("/api/orders/{oid}/favorite")
     def favorite(oid: str, body: dict):
+        if service.lock.locked():
+            raise HTTPException(409,'任务进行中，请完成或停止后再修改收藏')
         if type(body.get("enabled")) is not bool:
             raise HTTPException(422, "请选择收藏状态")
         if not store.favorite(oid, body["enabled"]):

@@ -154,7 +154,8 @@ class Service:
 
     def process(self, cancel=None, limit=None, groups=None):
         cancel = cancel or self.cancel
-        rows = sorted(self.store.messages({"received", "error"}), key=lambda r: r["payload"]["sent_at"] or "", reverse=True)
+        versions=self.store.parser_versions()
+        rows = sorted([row for row in self.store.messages() if row['state'] in {'received','error'} or row['state'] in {'processed','ignored'} and row['payload']['kind']=='text' and versions.get(row['id'])!=PARSER_VERSION], key=lambda r: r["payload"]["sent_at"] or "", reverse=True)
         if groups is not None:
             rows=[row for row in rows if row['payload']['group'] in groups]
         if limit is not None:
@@ -164,13 +165,19 @@ class Service:
             self.progress.update(state="no_messages", detail="已按当前条件筛选已有订单")
             return
         extractor = self.local_extractor()
+        if not cancel.is_set() and any(row['state'] in {'processed','ignored'} for row in rows):
+            try:
+                self.store.parser_backup()
+            except Exception:
+                self.progress.update(state='partial',errors=1,detail='旧消息备份未完成，尚未重新识别；请检查数据目录可写和磁盘空间后重试')
+                return
         for row in rows:
             if cancel.is_set():
                 self.progress.update(state="cancelled", detail="已停止解析，已保存结果保留")
                 return
             try:
                 drafts = extractor.extract(row["payload"])
-                self.store.save_drafts(row["id"], drafts)
+                self.store.save_drafts(row["id"], drafts, parser_version=PARSER_VERSION, replace=True)
             except ModelError as exc:
                 self.store.mark(row["id"], "error", str(exc))
                 self.progress["errors"] += 1
@@ -208,7 +215,7 @@ class Service:
         self.progress.update(state='complete',detail='核验完成；没有可靠网页依据的订单仍待确认')
 
     def run_process(self, limit=None):
-        self.process(limit=limit,groups=self.store.group_state()['groups'] or None)
+        self.process(limit=limit,groups=self.store.group_state()['groups'])
 
     def start_discovery(self):
         def run():
@@ -271,6 +278,8 @@ class Service:
             count=sum(row.get('count',0) for row in scan['groups'])
             state='extracted' if scan['state']=='complete' else 'extraction_cancelled' if scan['state']=='cancelled' else 'extraction_partial'
             detail='提取完成，点击“开始筛选”处理已保存的信息' if state=='extracted' else '提取已停止，已保存的信息可点击“开始筛选”' if state=='extraction_cancelled' else '提取不完整，已保存的信息可点击“开始筛选”'
+            if count == 0:
+                detail='本次未读取到消息，请展开采集状态查看原因' if state=='extraction_partial' else '已停止，本次未读取到消息' if state=='extraction_cancelled' else '提取结束，本次未读取到消息'
             self.progress={"state":state,"processed":count,"total":0,"errors":0,"detail":detail}
 
         self._launch_wechat(run)

@@ -19,6 +19,9 @@
 !/packaging/hooks/
 /packaging/hooks/*
 !/packaging/hooks/hook-pyweixin.py
+!/packaging/licenses/
+/packaging/licenses/*
+!/packaging/licenses/wechatauto-replica-APACHE-2.0.txt
 !/start.ps1
 !/start.cmd
 
@@ -48,18 +51,24 @@
 !/tests/test_travel.py
 !/tests/test_no_ai_workflow.py
 !/tests/test_desktop_runtime.py
+!/tests/test_accessibility_activation.py
+!/tests/test_accessibility_runtime.py
+!/tests/test_user_journey_integrity.py
+!/tests/test_release_packaging.py
 
 !/tools/
 /tools/*
 !/tools/__init__.py
 !/tools/build_regions.py
 !/tools/build_windows.py
+!/tools/user_journey_contracts.cjs
 
 !/docs/
 /docs/*
 !/docs/amap-setup.md
 !/docs/commute-workflow.md
 !/docs/windows-release.md
+!/docs/user-journey-audit-20261020.md
 !/docs/images/
 /docs/images/*
 !/docs/images/authorization-preview.png
