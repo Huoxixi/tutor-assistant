@@ -6,8 +6,6 @@
 
 提供 Windows 10/11 x64 运行包，无需安装 Python；也可以从源码运行。每位使用者在自己的电脑登录自己的微信，本项目不提供在线账号系统或手机应用。
 
-**直接运行：** 下载 [v0.2.3 Windows x64 运行包](https://github.com/Huoxixi/tutor-assistant/releases/download/v0.2.3/TutorAssistant-v0.2.3-windows-x64.zip)，完整解压后双击 `TutorAssistant.exe`，浏览器会自动打开。首次使用说明、数据位置和升级方式见 [Windows 运行包](docs/windows-release.md)。
-
 **新版界面与微信兼容测试版：** [下载 v0.2.4-rc.2](https://github.com/Huoxixi/tutor-assistant/releases/download/v0.2.4-rc.2/TutorAssistant-v0.2.4-rc.2-windows-x64.zip)，采用深绿侧栏、紧凑订单列表与宽原文阅读区，展开显示课酬、地点和教员要求的核对摘要。兼容能力沿用 v0.2.4-rc.1，按界面能力和二进制特征适配微信4.1+ x64，支持常驻和折叠搜索入口。4.1.15.56尚待目标电脑实际读取验证；不能将特征识别通过视为所有版本读取成功。连接失败时可在启动窗口一键生成无聊天正文的兼容性诊断。
 
 ## 功能
