@@ -7,7 +7,7 @@ const stateNames={complete:'读取范围已覆盖',incomplete:'采集不完整',
 const readStateName=report=>['complete','incomplete'].includes(report.state)&&(report.count>0||report.groups?.some(g=>g.count>0))?'已读取':(stateNames[report.state]||report.state);
 const messageNames={received:'等待解析',error:'解析失败',unparsed:'此类型未解析',processed:'已解析',ignored:'普通聊天'};
 let state={},view='orders',bucket='matched',data=[],favoriteData=[],selected=null,timer=null;
-let stopping=false,taskStarting=false,taskKind=null,authorizationSaving=false,ordersRequest=0,favoritesRequest=0,stateRequest=0;
+let stopping=false,taskStarting=false,taskKind=null,authorizationSaving=false,ordersRequest=0,favoritesRequest=0,stateRequest=0,wechatSettingsOpen=false;
 const favoriteSaving=new Set();
 let regions=[],regionIndex={},selectedRegions=[],selectedGroups=new Set(),groupCatalog=[],lastCatalog='',groupSaving=false;
 const subjects=['全科','作业辅导','语文','数学','英语','物理','化学','生物','历史','地理','政治','科学'];
@@ -16,6 +16,21 @@ const fact=(order,key)=>order.facts[key]?.value;
 const arr=value=>Array.isArray(value)?value.join('、'):value??'';
 const split=value=>String(value).split(/[,，、;；\n]/).map(x=>x.trim()).filter(Boolean);
 const formatTime=value=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'发布时间待确认';
+const compactTime=value=>value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'时间待确认';
+function uiIcon(name){
+  const paths={location:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',person:'<circle cx="12" cy="7" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3Z"/>',star:'<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4-5.7-3-5.7 3 1.1-6.4-4.6-4.5 6.4-.9Z"/>',book:'<path d="M12 5C9 3 5 3 2 4v16c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1v16"/>',pay:'<rect x="4" y="7" width="16" height="14" rx="2"/><path d="M8 7V3h8v4M9 12l3 3 3-3M12 15v3"/>',filter:'<path d="M3 5h18l-7 8v7l-4-2v-5Z"/>'};
+  return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(paths[name]||paths.book)+'</svg>';
+}
+function favoriteButton(order){
+  const enabled=Boolean(order.favorite_at),label=enabled?'取消收藏':'收藏';
+  return '<button type="button" class="favorite-button" data-favorite="'+esc(order.id)+'" data-enabled="'+!enabled+'" aria-pressed="'+enabled+'" aria-label="'+label+'订单 '+esc(order.reference||'无单号')+'" title="'+label+'"'+(state.busy||taskStarting||favoriteSaving.has(order.id)?' disabled':'')+'>'+uiIcon('star')+(enabled?'已收藏':'收藏')+'</button>';
+}
+function priceMarkup(order){
+  for(const [key,unit] of [['hourly_rate','元/小时'],['lesson_rate','元/次'],['monthly_rate','元/月']]){
+    if(fact(order,key)!=null)return esc(pretty(fact(order,key)))+'<span class="money-unit">'+unit+'</span>';
+  }
+  return esc(price(order));
+}
 function syncTabs(){
   $$('[data-bucket]').forEach(b=>{
     const active=b.dataset.bucket===bucket;
@@ -64,6 +79,9 @@ async function action(fn,button){
 function savedCounts(){return state.selected_counts||state.counts||{}}
 function renderWeChatAuthorization(){
   const authorized=state.wechat_authorization?.authorized===true;
+  $('#wechat-settings-toggle').hidden=!authorized;
+  $('#wechat-settings-toggle').setAttribute('aria-expanded',String(wechatSettingsOpen));
+  $('#wechat-authorization').hidden=!['orders','groups'].includes(view)||(view==='orders'&&authorized&&!wechatSettingsOpen);
   $('#wechat-authorization').classList.toggle('warn',!authorized);
   $('#wechat-authorization-status').textContent=authorized?'微信已授权 · 仅本次运行':'微信读取未授权';
   $('#connection').hidden=!authorized;
@@ -131,7 +149,10 @@ async function refreshState(){
 }
 function renderSummary(){
   const rules=state.preferences?.rules||[];
-  $('#rule-summary').innerHTML=rules.length?rules.map(r=>'<span class="chip">'+esc(names[r.field]||r.field)+' '+esc(r.field==='location'?r.value.map(code=>regionIndex[code]?.label||code).join('、'):pretty(r.value))+' · '+(r.mode==='must'?'必须':'优先')+'</span>').join(''):'<span class="muted">尚未设置需求</span>';
+  const ruleIcon=field=>field==='location'?'location':field.endsWith('_rate')?'pay':field==='subject'||field==='grade'?'book':'filter';
+  $('#rule-summary').innerHTML=rules.length?rules.map(r=>'<span class="chip">'+uiIcon(ruleIcon(r.field))+'<span>'+esc(names[r.field]||r.field)+' '+esc(r.field==='location'?r.value.map(code=>regionIndex[code]?.label||code).join('、'):pretty(r.value))+' · '+(r.mode==='must'?'必须':'优先')+'</span></span>').join(''):'<span class="muted">尚未设置需求</span>';
+  const latest=state.scans?.[0];
+  $('#source-context-text').textContent=state.groups?.length?'已选 '+state.groups.length+' 个群'+(latest?.end?' · 最近提取 '+compactTime(latest.end):' · 尚未提取信息'):'尚未选择微信群';
 }
 function renderScans(){
   const scan=state.scans?.[0];
@@ -159,8 +180,8 @@ async function setWeChatAuthorization(authorized){
   }finally{authorizationSaving=false;syncTaskControls()}
 }
 const sidebarMedia=window.matchMedia('(max-width:650px)');
-let sidebarCollapsed=true;
-try{sidebarCollapsed=localStorage.getItem('tutor-sidebar-collapsed')!=='0'}catch{}
+let sidebarCollapsed=false;
+try{sidebarCollapsed=localStorage.getItem('tutor-sidebar-collapsed')==='1'}catch{}
 function syncSidebarLayout(){
   const mobile=sidebarMedia.matches;
   $('.app-shell').classList.toggle('sidebar-collapsed',!mobile&&sidebarCollapsed);
@@ -214,11 +235,13 @@ setSidebarOpen(false);
 async function go(next){
   if(!['orders','favorites','preferences','groups','travel'].includes(next))next='orders';
   view=next;selected=null;
-  $('#page-context').textContent={orders:'订单清单',favorites:'我的收藏',preferences:'需求设置',groups:'微信群',travel:'通勤计算'}[next];
+  $('#page-context').textContent={orders:'家教订单',favorites:'我的收藏',preferences:'接单设置',groups:'微信群',travel:'通勤计算'}[next];
+  $('#page-subtitle').hidden=next!=='orders';
   const activeView=$('#view-'+next),heading=activeView.querySelector('.heading-row')||activeView.querySelector('h1');
   if(['orders','groups'].includes(next))heading.insertAdjacentElement('afterend',$('#wechat-authorization'));
   if(['travel','favorites'].includes(next))heading.insertAdjacentElement('afterend',$('#travel-authorization'));
   $('#wechat-authorization').hidden=!['orders','groups'].includes(next);
+  renderWeChatAuthorization();
   $('#travel-authorization').hidden=!['travel','favorites'].includes(next);
   setSidebarOpen(false);
   $$('.view').forEach(el=>el.hidden=el.id!=='view-'+next);
@@ -249,14 +272,14 @@ function teachingLocation(order){
 }
 function table(orders,favorites=false){
   return '<div class="order-list" aria-label="'+(favorites?'收藏订单':'订单列表')+'">'+orders.map(o=>{
-    const match=o.match;
-    const changed=match.bucket==='rejected';
+    const match=o.match,changed=match.bucket==='rejected';
     const badge=o.status==='closed'?'已出 / 已结束':o.expired?'已超过48小时':changed?'不符合当前条件':match.bucket==='matched'?'通过筛选':'待确认';
     const issues=changed?[o.status==='closed'?'原消息标明此单已出或已结束':'当前条件已变化，请重新核对',...match.conflicts]:match.unknowns;
-  const sources=new Set(o.sources.map(s=>s.group)).size;
+    const sources=new Set(o.sources.map(s=>s.group)).size;
     const locationNote=match.location_status==='unconfirmed'?'<span class="cell-sub attention-text">地区待核对 · 尚未通过</span>':'';
     const secondary=[fact(o,'weekly_sessions')!=null?pretty(fact(o,'weekly_sessions'))+'次/周':'',fact(o,'duration_hours')!=null?pretty(fact(o,'duration_hours'))+'小时/次':''].filter(Boolean).join(' · ');
-    return '<article class="order-item'+(selected===o.id?' selected':'')+'" data-order-row="'+esc(o.id)+'"><div class="order-meta"><span class="reference">'+esc(o.reference||'未提供单号')+'</span><span class="badge '+(match.bucket==='matched'&&!o.expired&&o.status!=='closed'?'':'pending')+'">'+esc(badge)+'</span><time>'+esc(formatTime(o.updated_at))+'</time></div><div class="order-title"><h2>'+esc(title(o))+'</h2><strong class="money">'+esc(price(o))+'</strong></div><dl class="order-facts"><div><dt>授课位置</dt><dd class="teaching-location">'+esc(teachingLocation(o))+locationNote+'</dd></div><div><dt>上课安排</dt><dd>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+(secondary?'<span class="cell-sub">'+esc(secondary)+'</span>':'')+'</dd></div><div><dt>教员要求</dt><dd>'+esc(requirements(o))+'</dd></div></dl>'+(fact(o,'focus_subjects')?'<p class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</p>':'')+(issues.length||o.expired?'<p class="order-issues">'+esc([o.expired?'已超过48小时，请确认是否仍可接单':'',...issues].filter(Boolean).join('；'))+'</p>':'')+(o.favorite_at?(window.TutorTravel?.summary(o.id)||''):'')+'<div class="order-bottom"><span class="cell-sub">'+esc([fact(o,'student_gender')?'学员'+fact(o,'student_gender'):'',fact(o,'students_count')?fact(o,'students_count')+'名学员':'',sources+'个来源群',o.possible_duplicates.length?'有疑似重复单':''].filter(Boolean).join(' · '))+'</span><div class="cell-actions"><button data-detail="'+esc(o.id)+'" data-favorites="'+favorites+'" aria-expanded="'+(selected===o.id)+'">详情</button>'+(favorites&&o.favorite_at?'<button data-travel-open="'+esc(o.id)+'" data-travel-favorites="true">计算通勤</button>':'')+'<button data-favorite="'+esc(o.id)+'" data-enabled="'+!o.favorite_at+'"'+(state.busy||taskStarting?' disabled':'')+'>'+(o.favorite_at?'取消收藏':'收藏')+'</button></div></div></article>';
+    const detail='<button type="button" class="order-open" data-detail="'+esc(o.id)+'" data-favorites="'+favorites+'" aria-expanded="'+(selected===o.id)+'" aria-label="查看 '+esc(o.reference||'无单号')+' '+esc(title(o))+' 原文">'+esc(title(o))+'</button>';
+    return '<article class="order-item'+(selected===o.id?' selected':'')+'" data-order-row="'+esc(o.id)+'"><div class="order-meta"><span class="reference">'+esc(o.reference||'未提供单号')+'</span><span class="badge '+(match.bucket==='matched'&&!o.expired&&o.status!=='closed'?'':'pending')+'">'+esc(badge)+'</span><time title="'+esc(formatTime(o.updated_at))+'">'+esc(compactTime(o.updated_at))+'</time></div><div class="order-title"><h2>'+detail+'</h2><strong class="money">'+priceMarkup(o)+'</strong></div><dl class="order-facts"><div><dt>'+uiIcon('location')+'<span class="sr-only">授课位置</span></dt><dd class="teaching-location">'+esc(teachingLocation(o))+locationNote+'</dd></div><div><dt>'+uiIcon('clock')+'<span class="sr-only">上课安排</span></dt><dd>'+esc(fact(o,'schedule')?pretty(fact(o,'schedule')):'具体时段待核对')+(secondary?'<span class="cell-sub">'+esc(secondary)+'</span>':'')+'</dd></div><div><dt>'+uiIcon('person')+'<span class="sr-only">教员要求</span></dt><dd>'+esc(requirements(o))+'</dd></div></dl>'+(fact(o,'focus_subjects')?'<p class="cell-sub">侧重'+esc(arr(fact(o,'focus_subjects')))+'</p>':'')+(issues.length||o.expired?'<p class="order-issues">'+esc([o.expired?'已超过48小时，请确认是否仍可接单':'',...issues].filter(Boolean).join('；'))+'</p>':'')+(o.favorite_at?(window.TutorTravel?.summary(o.id)||''):'')+'<div class="order-bottom"><span class="cell-sub">'+esc([fact(o,'student_gender')?'学员'+fact(o,'student_gender'):'',fact(o,'students_count')?fact(o,'students_count')+'名学员':'',sources+'个来源群',o.possible_duplicates.length?'有疑似重复单':''].filter(Boolean).join(' · '))+'</span><div class="cell-actions">'+(favorites&&o.favorite_at?'<button data-travel-open="'+esc(o.id)+'" data-travel-favorites="true">计算通勤</button>':'')+favoriteButton(o)+'</div></div></article>';
   }).join('')+'</div>';
 }
 async function loadOrders(){
@@ -298,11 +321,14 @@ function renderDetail(id,favorites=false,scroll=true){
   target.hidden=false;
   const primary=order.sources.find(source=>!source.is_update)||order.sources[0];
   const rawSource=source=>'<article class="source"><p class="muted">'+esc(source.group)+' · '+esc(source.sender)+' · '+esc(formatTime(source.sent_at))+'</p><div class="raw">'+esc(source.text)+'</div></article>';
-  target.innerHTML='<section class="detail-panel"><div class="heading-row"><h2>'+esc(order.reference||'无单号')+' · 原消息</h2><button data-close-detail="'+(favorites?'favorite':'order')+'">收起详情</button></div>'+caution+'<div class="order-original">'+(primary?rawSource(primary):'<p>原消息暂不可用</p>')+'</div>'+(order.sources.length>1?'<details><summary>补充消息与其他来源（'+(order.sources.length-1)+'）</summary>'+order.sources.filter(source=>source!==primary).map(rawSource).join('')+'</details>':'')+'<details class="local-checks"><summary>本地字段核对与筛选依据</summary><ul>'+match.reasons.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'+'<table class="evidence-table"><thead><tr><th>字段</th><th>值</th><th>原文依据</th></tr></thead><tbody>'+Object.entries(order.facts).map(([key,f])=>'<tr><td>'+esc(state.labels?.[key]||key)+(f.mode==='prefer'?'（偏好）':'')+'</td><td>'+esc(pretty(f.value))+'</td><td>'+esc(f.evidence)+'</td></tr>').join('')+'</tbody></table></details>'+'</section>';
+  const badge=order.status==='closed'?'已出 / 已结束':order.expired?'已超过48小时':match.bucket==='matched'?'通过筛选':match.bucket==='pending'?'待确认':'不符合当前条件';
+  const summary='<dl class="reader-facts"><div><dt>'+uiIcon('pay')+'课酬</dt><dd>'+esc(price(order))+'</dd></div><div><dt>'+uiIcon('location')+'授课地点</dt><dd>'+esc(teachingLocation(order))+'</dd></div><div><dt>'+uiIcon('person')+'教员要求</dt><dd>'+esc(requirements(order))+'</dd></div></dl>';
+  target.innerHTML='<section class="detail-panel"><div class="heading-row"><div class="reader-title"><h2>'+esc(order.reference||'无单号')+' · 原消息</h2><span class="badge '+(match.bucket==='matched'&&!order.expired&&order.status!=='closed'?'':'pending')+'">'+esc(badge)+'</span></div><div class="reader-actions">'+favoriteButton(order)+'<button data-close-detail="'+(favorites?'favorite':'order')+'">收起详情</button></div></div>'+caution+'<div class="order-original">'+(primary?rawSource(primary):'<p>原消息暂不可用</p>')+'</div>'+(order.sources.length>1?'<details><summary>补充消息与其他来源（'+(order.sources.length-1)+'）</summary>'+order.sources.filter(source=>source!==primary).map(rawSource).join('')+'</details>':'')+'<section class="reader-checks" aria-label="字段核对与筛选依据"><h3>字段核对与筛选依据</h3>'+summary+'<details class="local-checks"><summary>查看完整字段与原文依据</summary><ul>'+match.reasons.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>'+'<table class="evidence-table"><thead><tr><th>字段</th><th>值</th><th>原文依据</th></tr></thead><tbody>'+Object.entries(order.facts).map(([key,f])=>'<tr><td>'+esc(state.labels?.[key]||key)+(f.mode==='prefer'?'（偏好）':'')+'</td><td>'+esc(pretty(f.value))+'</td><td>'+esc(f.evidence)+'</td></tr>').join('')+'</tbody></table></details></section></section>';
+
   $$('[data-order-row]').forEach(row=>{const active=row.dataset.orderRow===id;row.classList.toggle('selected',active);row.querySelector('[data-detail]')?.setAttribute('aria-expanded',String(active))});
   target.insertAdjacentHTML('beforeend',window.TutorTravel?.detail(id,favorites,Boolean(order.favorite_at))||'');
   if(scroll){
-    if(window.matchMedia('(max-width:1099px)').matches)target.scrollIntoView({behavior:'auto',block:'start'});
+    if(window.matchMedia('(max-width:999px)').matches)target.scrollIntoView({behavior:'auto',block:'start'});
     else target.closest('.order-reader').scrollTop=0;
     const heading=target.querySelector('h2');heading.tabIndex=-1;heading.focus({preventScroll:true});
   }
@@ -396,6 +422,7 @@ async function changeGroups(method,body){
 }
 document.addEventListener('click',event=>{
   const button=event.target.closest('button');if(!button)return;
+  if(button.id==='wechat-settings-toggle'){wechatSettingsOpen=!wechatSettingsOpen;renderWeChatAuthorization();return}
   if(button.dataset.view)return action(()=>go(button.dataset.view),button);
   if(button.dataset.openScan){const panel=$('.scan-panel');panel.open=true;panel.scrollIntoView({block:'nearest'});$('#scan-summary').focus();return}
   if(button.dataset.bucket){bucket=button.dataset.bucket;selected=null;syncTabs();return action(loadOrders)}
