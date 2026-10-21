@@ -108,10 +108,13 @@ def dependency_probe(output):
             try:
                 from pyweixin import Navigator, Contacts
                 from pyweixin.Uielements import Buttons
+                from .accessibility import select_gate
+                from .wechat_navigation import ReadNavigator
                 import win32crypt
                 encrypted = win32crypt.CryptProtectData(b'synthetic-package-check', None, None, None, None, 1)
                 assert win32crypt.CryptUnprotectData(encrypted, None, None, None, 1)[1] == b'synthetic-package-check'
-                output.put({'ok': True, 'wechat_import': bool(Navigator and Contacts and Buttons), 'dpapi': True})
+                output.put({'ok': True, 'wechat_import': bool(Navigator and Contacts and Buttons),
+                            'compatibility_import': bool(select_gate and ReadNavigator), 'dpapi': True})
             finally:
                 pythoncom.CoUninitialize()
         except BaseException as exc:
@@ -205,17 +208,49 @@ def wechat_read_test(directory, group, count=5):
     return 0 if result.get('ok') else 1
 
 
+def compatibility_test(directory):
+    """Explicit diagnostic: root classes and DLL features, never chat contents."""
+    from .accessibility import run_activation, CompatibilityError
+    from .collector import describe_read_error
+    directory = Path(directory).resolve()
+    directory.mkdir(parents=True, exist_ok=False)
+    result = {'version': VERSION, 'chat_contents_read': False,
+              'write_attempted': False, 'actual_read_verified': False}
+    com = None
+    try:
+        import pythoncom
+        pythoncom.CoInitialize(); com = pythoncom
+        report = run_activation(apply=False, output=directory/'compatibility.json')
+        result.update(ok=True, state=report['state'], wechat_version=report['version'])
+    except CompatibilityError as exc:
+        result.update(ok=False, state=exc.reason, wechat_version=exc.version)
+    except Exception as exc:
+        result.update(ok=False, **describe_read_error(exc))
+    finally:
+        if com is not None:
+            com.CoUninitialize()
+        if not (directory/'compatibility.json').exists():
+            from .accessibility import save_report
+            save_report(directory/'compatibility.json', {'state': 'diagnostic_incomplete',
+                        'write_attempted': False, 'error_code': result.get('error_code', 'unknown')})
+        (directory/'result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    return 0 if result.get('ok') else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='家教拾单 Windows 启动器')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--self-test', metavar='NEW_DIRECTORY')
     mode.add_argument('--wechat-read-test', metavar='NEW_DIRECTORY', help='明确授权一次真实微信读取验收，仅保存条数')
+    mode.add_argument('--wechat-compatibility-test', metavar='NEW_DIRECTORY', help='只检查微信界面兼容性，不读取聊天或修改微信')
     parser.add_argument('--group', help='真实读取验收的完整群名')
     parser.add_argument('--read-count', type=int, choices=range(1, 21), default=5)
     parser.add_argument('--no-browser', action='store_true', help='不自动打开浏览器（诊断用）')
     args = parser.parse_args()
     if args.self_test:
         raise SystemExit(self_test(args.self_test))
+    if args.wechat_compatibility_test:
+        raise SystemExit(compatibility_test(args.wechat_compatibility_test))
     if args.wechat_read_test:
         if not args.group:
             parser.error('--wechat-read-test requires --group')
@@ -247,7 +282,7 @@ def main():
         instance = start_server(db)
         app, server, worker, sock, url, token = instance
         runtime_file.write_text(json.dumps({'port': sock.getsockname()[1], 'instance': token}), encoding='utf-8')
-        root.title('家教拾单 ' + VERSION); root.geometry('440x240'); root.resizable(False, False)
+        root.title('家教拾单 ' + VERSION); root.geometry('440x290'); root.resizable(False, False)
         root.configure(bg='#f6f8f7')
         tk.Label(root, text='家教拾单已启动', bg='#f6f8f7', fg='#104b3e', font=('Microsoft YaHei UI', 18, 'bold')).pack(pady=(24,8))
         tk.Label(root, text=url, bg='#f6f8f7', fg='#182d28', font=('Segoe UI', 11)).pack()
@@ -256,6 +291,29 @@ def main():
         tk.Button(actions, text='打开页面', command=lambda: webbrowser.open(url), padx=18, pady=5).pack(side='left', padx=6)
         tk.Button(actions, text='打开数据目录', command=lambda: os.startfile(db.parent), padx=12, pady=5).pack(side='left', padx=6)
         tk.Button(actions, text='退出', command=root.quit, padx=12, pady=5).pack(side='left', padx=6)
+        def diagnose():
+            from datetime import datetime
+            target = db.parent/'diagnostics'/('compatibility-'+datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            process = multiprocessing.get_context('spawn').Process(target=compatibility_test, args=(target,), daemon=True)
+            diagnosis_button.configure(state='disabled', text='正在检查兼容性…')
+            process.start()
+            started = time.monotonic()
+            def poll():
+                if process.is_alive() and time.monotonic()-started < 30:
+                    root.after(200, poll)
+                    return
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=.5)
+                diagnosis_button.configure(state='normal', text='检查微信兼容性（不读取聊天）')
+                if (target/'result.json').exists():
+                    os.startfile(target)
+                else:
+                    messagebox.showinfo('微信兼容性', '本次检查未完成，请保持微信主窗口可见后重试。', parent=root)
+            root.after(200, poll)
+        diagnosis_button = tk.Button(root, text='检查微信兼容性（不读取聊天）', command=diagnose, padx=12, pady=5)
+        diagnosis_button.pack(pady=6)
         root.protocol('WM_DELETE_WINDOW', root.quit)
         root.deiconify()
         if not args.no_browser: webbrowser.open(url)

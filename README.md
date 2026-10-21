@@ -8,6 +8,8 @@
 
 **直接运行：** 下载 [v0.2.3 Windows x64 运行包](https://github.com/Huoxixi/tutor-assistant/releases/download/v0.2.3/TutorAssistant-v0.2.3-windows-x64.zip)，完整解压后双击 `TutorAssistant.exe`，浏览器会自动打开。首次使用说明、数据位置和升级方式见 [Windows 运行包](docs/windows-release.md)。
 
+**微信兼容测试版：** [v0.2.4-rc.1](https://github.com/Huoxixi/tutor-assistant/releases/tag/v0.2.4-rc.1) 改为按界面能力和二进制特征适配微信4.1+ x64，支持常驻和折叠搜索入口。4.1.15.56尚待目标电脑实际读取验证；不能将特征识别通过视为所有版本读取成功。连接失败时可在启动窗口一键生成无聊天正文的兼容性诊断。
+
 ## 功能
 
 - **先授权，再读取**：每次启动默认未授权。点击“同意并授权”后才可检查和连接微信，授权不会自动提取。
@@ -166,7 +168,7 @@ py -3.13 -m venv .venv313
 .\.venv313\Scripts\python.exe -m pytest -q
 ```
 
-公开版本的 109 项测试使用合成消息、临时数据库、模拟微信和高德响应，不依赖真实微信，不调用真实高德或 AI 服务。运行包另有独立 EXE 自检。私人复核报告、真实聊天语料、本机运行诊断及历史设计材料不包含在公开版本中。
+公开测试使用合成消息、临时数据库、模拟微信和高德响应，不依赖真实微信，不调用真实高德或 AI 服务。运行包另有独立 EXE 自检。私人复核报告、真实聊天语料、本机运行诊断及历史设计材料不包含在公开版本中。
 
 ```text
 app/

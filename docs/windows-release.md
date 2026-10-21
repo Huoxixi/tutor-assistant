@@ -1,5 +1,21 @@
 # Windows 运行包
 
+## 微信4.1+兼容测试版 v0.2.4-rc.1
+
+[下载兼容测试版](https://github.com/Huoxixi/tutor-assistant/releases/tag/v0.2.4-rc.1)。用户授权并点击读取后，优先检查实际界面是否可访问；需要初始化时，已验证文件走原有路径，其他微信4.1+ x64版本按本机DLL特征定位。要求有效PE段边界、只读Qt无障碍类别、邻近代码引用、唯一可写且不可执行的目标，并核对进程加载内容。只调整一个运行时标志；回读和界面确认失败时还原，无法可靠识别时停止。不会套用其他版本的固定地址，也不修改安装文件或全系统读屏设置。
+
+搜索支持常驻输入框与点击展开的按钮；按微信进程和实际UIA类型绑定主窗口，避免依赖固定Qt版本类名。只点击完整名称匹配的唯一聊天，打开后再次确认；重复同名或未确认时停止，不会尝试网络添加联系人。
+
+**验证范围：** 本机4.1.15.13 DLL的独立特征定位结果与此前已验证地址一致；另有合成不同布局和地址的回归测试。4.1.15.56尚未在目标电脑实际读取验证，其他4.1+版本同样需验证，不能保证全部可用。此前v0.2.1的精确版本限制已由本版替代。
+
+连接失败时，在启动窗口点击“检查微信兼容性（不读取聊天）”，完成后自动打开结果目录。`result.json` 与 `compatibility.json` 仅含版本、界面类、文件指纹和状态，不读取聊天正文、群名或账号，不写入微信。诊断通过表示界面或特征可识别，仍需使用者授权后提取一个群，验证实际读取。也可使用命令：
+
+```powershell
+.\TutorAssistant.exe --wechat-compatibility-test D:\wechat-compatibility-check-new
+```
+
+以下为稳定版与历史变更说明。
+
 下载 [v0.2.3 Windows x64 运行包](https://github.com/Huoxixi/tutor-assistant/releases/download/v0.2.3/TutorAssistant-v0.2.3-windows-x64.zip)，完整解压后双击 `TutorAssistant.exe`。不要只下载 GitHub 自动生成的 Source code 源码压缩包。所有已发布版本见 [GitHub Releases](https://github.com/Huoxixi/tutor-assistant/releases)。
 
 运行包内置 Python、网页资源、地区数据和微信读取依赖，适用于 Windows 10/11 x64。启动后自动打开浏览器；关闭启动窗口退出，关闭浏览器标签仅关闭页面。重复双击会打开现有实例；本地端口被其他软件占用时会选择备用端口。

@@ -37,7 +37,7 @@
 
 ## 微信界面访问兼容性初始化
 
-`app/accessibility.py` 中的运行时标志定位方法参考 [fanyuantaier/wechatauto-replica](https://github.com/fanyuantaier/wechatauto-replica) 的 accessibility 实现（Apache-2.0）。本项目改写为仅接受已验证微信版本、文件 SHA-256、代码模式和单字节标志，加入读取前检查、取消和失败回滚；未集成上游其他功能。上游许可原文保留在 `packaging/licenses/wechatauto-replica-APACHE-2.0.txt`，运行包另附于 `third_party_licenses/`。
+`app/accessibility.py` 中的运行时标志定位方法参考 [fanyuantaier/wechatauto-replica](https://github.com/fanyuantaier/wechatauto-replica) 的 accessibility 实现（Apache-2.0）。本项目保留已验证文件 SHA-256 路径，并增加严格 PE 边界、Qt 无障碍类别引用和唯一目标检查；不会依次尝试未经确认的候选地址。读取前确认加载内容一致，校验单字节标志，支持取消和失败回滚；未集成上游其他功能。上游许可原文保留在 `packaging/licenses/wechatauto-replica-APACHE-2.0.txt`，运行包另附于 `third_party_licenses/`。
 
 ## 内置地区数据：Vant Area Data
 

@@ -284,9 +284,9 @@ class UIAHistoryDriver:
             raise HistoryReadError("read_cancelled", "扫描已取消，已读记录保留")
         if self.desktop is None:
             from pywinauto import Desktop
-            from pyweixin import Navigator
+            from .wechat_navigation import ReadNavigator
             from pyweixin.Uielements import Buttons
-            self.desktop, self.navigator, self.buttons = Desktop(backend="uia"), Navigator, Buttons
+            self.desktop, self.navigator, self.buttons = Desktop(backend="uia"), ReadNavigator(stopped), Buttons
         diag.event("open_chat")
         main = self.navigator.open_dialog_window(friend=group, is_maximize=True, search_pages=0)
         pid = main.element_info.process_id
